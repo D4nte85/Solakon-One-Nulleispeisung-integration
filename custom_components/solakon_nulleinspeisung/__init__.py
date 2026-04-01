@@ -7,6 +7,7 @@ from pathlib import Path
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components import panel_custom
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -36,12 +37,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [StaticPathConfig(PANEL_JS_PATH, str(panel_js), cache_headers=False)]
     )
 
-    try:
-        hass.components.frontend.async_register_panel(
-            component_name="solakon-panel",
+try:
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name="solakon-panel",
             sidebar_title="Solakon ONE",
             sidebar_icon="mdi:solar-power",
             frontend_url_path=DOMAIN,
+            module_url=PANEL_JS_PATH, # <-- Wichtig: Sagt dem Browser, wo das JS liegt!
             config={"entry_id": entry.entry_id},
             require_admin=False,
         )
