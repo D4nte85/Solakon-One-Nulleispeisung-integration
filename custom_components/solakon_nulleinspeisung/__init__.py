@@ -11,7 +11,10 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PLATFORMS, S_REGULATION_ENABLED
+from .const import (
+    DOMAIN, PLATFORMS, S_REGULATION_ENABLED,
+    CONF_GRID_SENSOR, CONF_SOLAR_SENSOR, CONF_SOC_SENSOR,
+)
 
 _LOGGER = logging.getLogger(__name__)
 PANEL_JS_URL = f"/{DOMAIN}/panel.js"
@@ -65,11 +68,6 @@ async def _ws_get_status(
         return
 
     cfg = coord.entry.data
-
-    def sv(eid: str, fallback: str = "—") -> str:
-        s = hass.states.get(eid)
-        return s.state if s and s.state not in ("unknown", "unavailable") else fallback
-
     connection.send_result(msg["id"], {
         "zone": coord.current_zone,
         "zone_label": coord.zone_label,
@@ -77,15 +75,20 @@ async def _ws_get_status(
         "last_action": coord.last_action,
         "last_error": coord.last_error,
         "integral": round(coord.integral, 2),
-        "regulation_enabled": coord.settings.get(S_REGULATION_ENABLED, False),
+        "grid": coord._flt(cfg.get(CONF_GRID_SENSOR, ""), 0),
+        "solar": coord._flt(cfg.get(CONF_SOLAR_SENSOR, ""), 0),
+        "soc": coord._flt(cfg.get(CONF_SOC_SENSOR, ""), 0),
         "cycle_active": coord.cycle_active,
         "surplus_active": coord.surplus_active,
-        "ac_charge_active": coord.ac_charge_active,
-        "tariff_charge_active": coord.tariff_charge_active,
-        "grid_w": sv(cfg.get("grid_power_sensor", ""), "—"),
-        "solar_w": sv(cfg.get("solar_power_sensor", ""), "—"),
-        "soc_pct": sv(cfg.get("soc_sensor", ""), "—"),
-        "actual_w": sv(cfg.get("actual_power_sensor", ""), "—"),
+        "ac_charge": coord.ac_charge_active,
+        "tariff_charge": coord.tariff_charge_active,
+        "regulation_enabled": coord.settings.get(S_REGULATION_ENABLED, False),
+        # StdDev + Dynamic Offset
+        "stddev": coord.grid_stddev,
+        "dyn_offset_enabled": coord.settings.get("dyn_offset_enabled", False),
+        "dyn_z1": coord.dyn_offset_z1,
+        "dyn_z2": coord.dyn_offset_z2,
+        "dyn_ac": coord.dyn_offset_ac,
     })
 
 
@@ -105,7 +108,7 @@ async def _ws_reset_integral(
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
 
 
-# ── Setup ────────────────────────────────────────────────────────────────────
+# ── Setup / Unload ───────────────────────────────────────────────────────────
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
