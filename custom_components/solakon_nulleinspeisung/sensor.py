@@ -1,7 +1,8 @@
-"""Sensor platform — zone, mode label, last action."""
+"""Sensor platform — zone, mode label, last action, grid std dev."""
 from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
@@ -22,6 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, add: AddEnt
         ZoneSensor(coord),
         ModeTextSensor(coord),
         LastActionSensor(coord),
+        GridStdDevSensor(coord),
     ])
 
 
@@ -43,15 +45,15 @@ class ZoneSensor(SolakonEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {
-            "zone_label":   self._coordinator.zone_label,
-            "last_action":  self._coordinator.last_action,
-            "last_error":   self._coordinator.last_error,
-            "integral":     round(self._coordinator.integral, 2),
+            "zone_label":  self._coordinator.zone_label,
+            "last_action": self._coordinator.last_action,
+            "last_error":  self._coordinator.last_error,
+            "integral":    round(self._coordinator.integral, 2),
         }
 
 
 class ModeTextSensor(SolakonEntity, SensorEntity):
-    """Human-readable inverter mode."""
+    """Vom Menschen lesbarer Betriebsmodus."""
     _attr_name = "Betriebsmodus"
     _attr_icon = "mdi:information-outline"
 
@@ -73,3 +75,26 @@ class LastActionSensor(SolakonEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         return self._coordinator.last_action
+
+
+class GridStdDevSensor(SolakonEntity, SensorEntity):
+    """Standardabweichung der Netzleistung über das konfigurierte Zeitfenster."""
+    _attr_name = "Netz Standardabweichung"
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coord: SolakonCoordinator) -> None:
+        super().__init__(coord, "grid_stddev")
+
+    @property
+    def native_value(self) -> float:
+        return self._coordinator.grid_stddev
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .const import S_STDDEV_WINDOW
+        return {
+            "window_seconds": self._coordinator.settings.get(S_STDDEV_WINDOW, 60),
+            "sample_count":   len(self._coordinator._grid_buffer),
+        }

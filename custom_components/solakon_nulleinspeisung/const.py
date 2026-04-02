@@ -31,6 +31,7 @@ PLATFORMS = ["sensor", "number", "switch"]
 # -- Settings Keys -------------------------------------------------------------
 S_P_FACTOR, S_I_FACTOR = "p_factor", "i_factor"
 S_TOLERANCE, S_WAIT_TIME = "tolerance", "wait_time"
+S_STDDEV_WINDOW = "stddev_window"
 S_ZONE1_LIMIT, S_ZONE3_LIMIT = "zone1_limit", "zone3_limit"
 S_DISCHARGE_MAX, S_HARD_LIMIT = "discharge_max", "hard_limit"
 S_OFFSET_1, S_OFFSET_2, S_PV_RESERVE = "offset_1", "offset_2", "pv_reserve"
@@ -45,6 +46,7 @@ S_NIGHT_ENABLED = "night_enabled"
 # -- SETTINGS DEFAULTS (Blueprint V302) ----------------------------------------
 SETTINGS_DEFAULTS = {
     S_P_FACTOR: 0.5, S_I_FACTOR: 0.07, S_TOLERANCE: 0, S_WAIT_TIME: 10,
+    S_STDDEV_WINDOW: 60,
     S_ZONE1_LIMIT: 20, S_ZONE3_LIMIT: 10, S_DISCHARGE_MAX: 800, S_HARD_LIMIT: 800,
     S_OFFSET_1: -20, S_OFFSET_2: -5, S_PV_RESERVE: 50,
     S_SURPLUS_ENABLED: False, S_SURPLUS_SOC_THRESHOLD: 90, S_SURPLUS_SOC_HYST: 5, S_SURPLUS_PV_HYST: 50,
