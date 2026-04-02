@@ -1,8 +1,10 @@
 """Solakon ONE Nulleinspeisung — HACS custom integration."""
 from __future__ import annotations
+
 import logging
 from pathlib import Path
 import voluptuous as vol
+
 from homeassistant.components import websocket_api, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -13,7 +15,7 @@ from .const import DOMAIN, PLATFORMS
 _LOGGER = logging.getLogger(__name__)
 PANEL_JS_URL = "/solakon_nulleinspeisung/panel.js"
 
-# ── WebSocket Commands ───────────────────────────────────────────────────────
+# ── WebSocket Commands (Müssen VOR der Registrierung definiert sein) ─────────
 
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/get_config",
@@ -38,6 +40,8 @@ async def _ws_save_config(hass: HomeAssistant, connection: websocket_api.ActiveC
     if coord:
         await coord.async_update_settings(msg["changes"])
         connection.send_result(msg["id"], {"success": True})
+    else:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
 
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/get_status",
@@ -74,21 +78,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import SolakonCoordinator
     coordinator = SolakonCoordinator(hass, entry)
     await coordinator.async_setup()
+    
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    panel_js = Path(__file__).parent / "frontend" / "solakon-panel.js"
-    await hass.http.async_register_static_paths([StaticPathConfig(PANEL_JS_URL, str(panel_js), False)])
-
-    await panel_custom.async_register_panel(
-        hass, webcomponent_name="solakon-panel", sidebar_title="Solakon ONE",
-        sidebar_icon="mdi:solar-power", frontend_url_path=DOMAIN,
-        module_url=PANEL_JS_URL, config={"entry_id": entry.entry_id}, require_admin=False,
+    # Statische JS-Datei registrieren
+    panel_js_file = Path(__file__).parent / "frontend" / "solakon-panel.js"
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(PANEL_JS_URL, str(panel_js_file), False)]
     )
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Panel registrieren - HIER WIRD DIE entry_id ÜBERGEBEN
+    await panel_custom.async_register_panel(
+        hass,
+        webcomponent_name="solakon-panel",
+        sidebar_title="Solakon ONE",
+        sidebar_icon="mdi:solar-power",
+        frontend_url_path=DOMAIN,
+        module_url=PANEL_JS_URL,
+        config={"entry_id": entry.entry_id}, # WICHTIG!
+        require_admin=False,
+    )
+
+    # WebSocket APIs registrieren
     websocket_api.async_register_command(hass, _ws_get_config)
     websocket_api.async_register_command(hass, _ws_save_config)
     websocket_api.async_register_command(hass, _ws_get_status)
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
