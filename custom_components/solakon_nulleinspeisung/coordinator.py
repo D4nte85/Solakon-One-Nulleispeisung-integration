@@ -27,6 +27,7 @@ from .const import (
     S_TARIFF_ENABLED, S_TARIFF_PRICE_SENSOR, S_TARIFF_CHEAP_THRESHOLD,
     S_TARIFF_EXP_THRESHOLD, S_TARIFF_SOC_TARGET, S_TARIFF_POWER,
     S_NIGHT_ENABLED,
+    S_SELF_ADJUST, S_SELF_ADJUST_TOL,
     S_DYN_OFFSET_ENABLED,
     S_DYN_Z1_MIN, S_DYN_Z1_MAX, S_DYN_Z1_NOISE, S_DYN_Z1_FACTOR, S_DYN_Z1_NEGATIVE,
     S_DYN_Z2_MIN, S_DYN_Z2_MAX, S_DYN_Z2_NOISE, S_DYN_Z2_FACTOR, S_DYN_Z2_NEGATIVE,
@@ -58,6 +59,9 @@ class SolakonCoordinator:
         self.surplus_active: bool = False
         self.ac_charge_active: bool = False
         self.tariff_charge_active: bool = False
+
+        # Timestamp letzte Aktion (für Panel-Anzeige)
+        self.last_action_ts: float = time.time()
 
         # StdDev-Ringpuffer für Netz-Standardabweichung
         self._grid_samples: deque[tuple[float, float]] = deque()  # (timestamp, value)
@@ -167,8 +171,51 @@ class SolakonCoordinator:
 
     def reset_integral(self) -> None:
         self.integral = 0.0
-        self.last_action = "Integral manuell zurückgesetzt"
+        self._set_last_action("Integral manuell zurückgesetzt")
         self.notify_listeners()
+
+    # ── Last-Action Setter ───────────────────────────────────────────────────
+
+    def _set_last_action(self, text: str) -> None:
+        """Setzt last_action und aktualisiert den Zeitstempel."""
+        self.last_action = text
+        self.last_action_ts = time.time()
+
+    # ── Self-Adjusting Wait ──────────────────────────────────────────────────
+
+    async def _wait_for_target(self, target: float) -> None:
+        """Wartet bis actual_power den Zielwert erreicht, oder max wait_time."""
+        s = self.settings
+        wait_max = float(s.get(S_WAIT_TIME, 3))
+
+        if not s.get(S_SELF_ADJUST, False):
+            await asyncio.sleep(wait_max)
+            return
+
+        tolerance = float(s.get(S_SELF_ADJUST_TOL, 2))
+        actual_eid = self.entry.data.get(CONF_ACTUAL_SENSOR, "")
+
+        # Mindestwartezeit: Modbus-Befehl muss erst ankommen
+        await asyncio.sleep(1.0)
+
+        start = time.monotonic()
+        remaining = wait_max - 1.0
+
+        while remaining > 0:
+            actual = self._flt(actual_eid)
+            if abs(actual - target) <= tolerance:
+                _LOGGER.debug(
+                    "Solakon: Zielwert erreicht (actual=%.0f, target=%.0f) nach %.1fs",
+                    actual, target, time.monotonic() - start,
+                )
+                return
+            await asyncio.sleep(min(1.0, remaining))
+            remaining = wait_max - (time.monotonic() - start)
+
+        _LOGGER.debug(
+            "Solakon: Max-Wartezeit (%.0fs), actual=%.0f, target=%.0f",
+            wait_max, self._flt(actual_eid), target,
+        )
 
     # ── StdDev-Berechnung (Ringpuffer) ───────────────────────────────────────
 
@@ -464,8 +511,8 @@ class SolakonCoordinator:
             # Zone 0 — Surplus: Hard Limit, Integral einfrieren
             await self._set_output(hard_limit)
             self.mode_label = "Überschuss-Einspeisung"
-            self.last_action = f"Zone 0: Output → {hard_limit} W"
-            await asyncio.sleep(wait_time)
+            self._set_last_action(f"Zone 0: Output → {hard_limit} W")
+            await self._wait_for_target(hard_limit)
 
         elif self.ac_charge_active:
             # AC Laden — invertierter PI, keine at_max/at_min Guards
@@ -476,13 +523,13 @@ class SolakonCoordinator:
                     tolerance, ac_p, ac_i, ac_charge_mode=True,
                 )
                 await self._set_output(new_pw)
-                self.last_action = f"AC-PI: {current_power:.0f} → {new_pw:.0f} W"
-            await asyncio.sleep(wait_time)
+                self._set_last_action(f"AC-PI: {current_power:.0f} → {new_pw:.0f} W")
+            await self._wait_for_target(new_pw if abs(ac_grid_err) > tolerance else current_power)
 
         elif self.tariff_charge_active:
             # Tarif-Laden — direktes Setzen (kein PI, feste Leistung)
             await self._set_output(tariff_power)
-            self.last_action = f"Tarif-Laden: {tariff_power} W"
+            self._set_last_action(f"Tarif-Laden: {tariff_power} W")
 
         else:
             # Normaler PI-Regler
@@ -495,13 +542,13 @@ class SolakonCoordinator:
                     tolerance, p_factor, i_factor, ac_charge_mode=False,
                 )
                 await self._set_output(new_pw)
-                self.last_action = f"PI: {current_power:.0f} → {new_pw:.0f} W"
-                await asyncio.sleep(wait_time)
+                self._set_last_action(f"PI: {current_power:.0f} → {new_pw:.0f} W")
+                await self._wait_for_target(new_pw)
             else:
                 # Integral-Decay
                 if abs(self.integral) > 10:
                     self.integral *= 0.95
-                    self.last_action = "Integral-Decay (5%)"
+                    self._set_last_action("Integral-Decay (5%)")
 
         # ── 10. Integral persistieren + Display aktualisieren ────────────────
         await self._save_integral()
@@ -527,7 +574,7 @@ class SolakonCoordinator:
             self.surplus_active = True
             if self.cycle_active:
                 await self._set_discharge(2)  # Stabilitätspuffer
-            self.last_action = "Zone 0: Surplus aktiviert"
+            self._set_last_action("Zone 0: Surplus aktiviert")
             return "0A"
 
         # ── Fall 0B: Surplus Exit ────────────────────────────────────────────
@@ -536,7 +583,7 @@ class SolakonCoordinator:
             self.integral = 0.0  # FIX #4: Integral-Reset bei Surplus-Ende
             if self.cycle_active:
                 await self._set_discharge(discharge_max)
-            self.last_action = "Zone 0: Surplus beendet"
+            self._set_last_action("Zone 0: Surplus beendet")
             return "0B"
 
         # ── Fall A: Zone 1 Start ─────────────────────────────────────────────
@@ -553,7 +600,7 @@ class SolakonCoordinator:
             self.tariff_charge_active = False
             await self._timer_toggle()
             await self._set_mode(MODE_DISCHARGE)
-            self.last_action = f"Fall A: Zone 1 Start (SOC {soc:.0f}%)"
+            self._set_last_action(f"Fall A: Zone 1 Start (SOC {soc:.0f}%)")
             return "A"
 
         # ── Fall B: Zone 3 Stop (Zyklus on) ──────────────────────────────────
@@ -571,7 +618,7 @@ class SolakonCoordinator:
             # Output → 0W VOR Modus → Disabled (Modbus-Reihenfolge!)
             await self._set_output(0)
             await self._set_mode(MODE_DISABLED)
-            self.last_action = f"Fall B: Zone 3 Stop (SOC {soc:.0f}%)"
+            self._set_last_action(f"Fall B: Zone 3 Stop (SOC {soc:.0f}%)")
             return "B"
 
         # ── Fall C: Zone 3 Absicherung ───────────────────────────────────────
@@ -587,7 +634,7 @@ class SolakonCoordinator:
             self.tariff_charge_active = False
             await self._set_output(0)
             await self._set_mode(MODE_DISABLED)
-            self.last_action = "Fall C: Zone 3 Absicherung"
+            self._set_last_action("Fall C: Zone 3 Absicherung")
             return "C"
 
         # ── Fall D: Recovery ─────────────────────────────────────────────────
@@ -601,7 +648,7 @@ class SolakonCoordinator:
                 await self._set_mode(MODE_AC_CHARGE)
             else:
                 await self._set_mode(MODE_DISCHARGE)
-            self.last_action = "Fall D: Recovery"
+            self._set_last_action("Fall D: Recovery")
             return "D"
 
         # ── Fall GT: Tarif-Laden Start ───────────────────────────────────────
@@ -617,7 +664,7 @@ class SolakonCoordinator:
             await self._timer_toggle()
             await self._set_output(0)
             await self._set_mode(MODE_AC_CHARGE)
-            self.last_action = f"Fall GT: Tarif-Laden (Preis {v['tariff_price']:.1f})"
+            self._set_last_action(f"Fall GT: Tarif-Laden (Preis {v['tariff_price']:.1f})")
             return "GT"
 
         # ── Fall HT: Tarif-Laden Ende ────────────────────────────────────────
@@ -637,12 +684,10 @@ class SolakonCoordinator:
             else:
                 await self._set_output(0)
                 await self._set_mode(MODE_DISABLED)
-            self.last_action = "Fall HT: Tarif-Laden beendet"
+            self._set_last_action("Fall HT: Tarif-Laden beendet")
             return "HT"
 
         # ── FIX #7: Mittlere Tarifstufe — Discharge-Lock ────────────────────
-        # Bei nicht-teurem Tarif: Entladung sperren (Modus → Disabled, Output 0)
-        # Nur wenn Tarif aktiv, Preis < teuer-Schwelle, nicht im Ladebetrieb
         if (
             v["tariff_enabled"]
             and v["tariff_price"] >= v["tariff_cheap"]
@@ -655,7 +700,7 @@ class SolakonCoordinator:
             self.integral = 0.0
             await self._set_output(0)
             await self._set_mode(MODE_DISABLED)
-            self.last_action = f"Tarif: Discharge-Lock (Preis {v['tariff_price']:.1f})"
+            self._set_last_action(f"Tarif: Discharge-Lock (Preis {v['tariff_price']:.1f})")
             return "TM"
 
         # ── Fall G: AC Laden Start ───────────────────────────────────────────
@@ -669,7 +714,7 @@ class SolakonCoordinator:
             await self._timer_toggle()
             await self._set_output(0)
             await self._set_mode(MODE_AC_CHARGE)
-            self.last_action = "Fall G: AC Laden Start"
+            self._set_last_action("Fall G: AC Laden Start")
             return "G"
 
         # ── Fall H: AC Laden Ende ────────────────────────────────────────────
@@ -690,7 +735,7 @@ class SolakonCoordinator:
             else:
                 await self._set_output(0)
                 await self._set_mode(MODE_DISABLED)
-            self.last_action = "Fall H: AC Laden Ende"
+            self._set_last_action("Fall H: AC Laden Ende")
             return "H"
 
         # ── Fall I: Safety — Modus '3' ohne aktive Lade-Session ──────────────
@@ -707,7 +752,7 @@ class SolakonCoordinator:
             else:
                 await self._set_output(0)
                 await self._set_mode(MODE_DISABLED)
-            self.last_action = "Fall I: Safety-Korrektur (Modus 3 ohne Session)"
+            self._set_last_action("Fall I: Safety-Korrektur (Modus 3 ohne Session)")
             return "I"
 
         # ── Fall E: Zone 2 Start ─────────────────────────────────────────────
@@ -722,7 +767,7 @@ class SolakonCoordinator:
             self.integral = 0.0
             await self._timer_toggle()
             await self._set_mode(MODE_DISCHARGE)
-            self.last_action = "Fall E: Zone 2 Start"
+            self._set_last_action("Fall E: Zone 2 Start")
             return "E"
 
         # ── Fall F: Nachtabschaltung ─────────────────────────────────────────
@@ -736,7 +781,7 @@ class SolakonCoordinator:
             self.integral = 0.0
             await self._set_output(0)
             await self._set_mode(MODE_DISABLED)
-            self.last_action = "Fall F: Nachtabschaltung"
+            self._set_last_action("Fall F: Nachtabschaltung")
             return "F"
 
         return None
