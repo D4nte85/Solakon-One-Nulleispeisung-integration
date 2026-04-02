@@ -137,6 +137,10 @@ SETTINGS_DEFAULTS: dict = {
 
     S_NIGHT_ENABLED: False,
 
+    # Self-Adjusting Wait
+    S_SELF_ADJUST: False,
+    S_SELF_ADJUST_TOL: 2,
+
     # Dynamic Offset
     S_DYN_OFFSET_ENABLED: False,
 
