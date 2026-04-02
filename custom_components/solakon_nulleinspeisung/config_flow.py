@@ -16,41 +16,46 @@ from .const import (
 
 
 def _schema(current: dict) -> vol.Schema:
-    def _ent(key: str, domain: str, device_class: str | None = None) -> selector.EntitySelector:
+    def _ent(domain: str, device_class: str | None = None) -> selector.EntitySelector:
         spec: dict = {"domain": domain}
         if device_class:
             spec["device_class"] = device_class
-        return selector.EntitySelector(selector.EntitySelectorConfig(**spec))  # type: ignore[arg-type]
+        # Nutze das dict-Format für den Selector, das ist im Config Flow oft am robustesten
+        return selector.selector({"entity": spec})
 
     d = REQUIRED_ENTITY_DEFAULTS
     return vol.Schema({
         vol.Required(CONF_GRID_SENSOR,
-                     default=current.get(CONF_GRID_SENSOR, "")): selector.selector(
-            {"entity": {"domain": "sensor", "device_class": "power"}}),
+                     default=current.get(CONF_GRID_SENSOR, "")): _ent("sensor", "power"),
+
         vol.Required(CONF_ACTUAL_SENSOR,
-                     default=current.get(CONF_ACTUAL_SENSOR, d[CONF_ACTUAL_SENSOR])): selector.selector(
-            {"entity": {"domain": "sensor", "device_class": "power"}}),
+                     default=current.get(CONF_ACTUAL_SENSOR, d.get(CONF_ACTUAL_SENSOR, ""))): _ent("sensor", "power"),
+
         vol.Required(CONF_SOLAR_SENSOR,
-                     default=current.get(CONF_SOLAR_SENSOR, d[CONF_SOLAR_SENSOR])): selector.selector(
-            {"entity": {"domain": "sensor", "device_class": "power"}}),
+                     default=current.get(CONF_SOLAR_SENSOR, d.get(CONF_SOLAR_SENSOR, ""))): _ent("sensor", "power"),
+
         vol.Required(CONF_SOC_SENSOR,
-                     default=current.get(CONF_SOC_SENSOR, d[CONF_SOC_SENSOR])): selector.selector(
-            {"entity": {"domain": "sensor", "device_class": "battery"}}),
+                     default=current.get(CONF_SOC_SENSOR, d.get(CONF_SOC_SENSOR, ""))): _ent("sensor", "battery"),
+
+        # Fernsteuerung: Countdown (Meist ein reiner Sensor, evtl. device_class "duration" falls Solakon das so liefert)
         vol.Required(CONF_TIMEOUT_COUNTDOWN,
-                     default=current.get(CONF_TIMEOUT_COUNTDOWN, d[CONF_TIMEOUT_COUNTDOWN])): selector.selector(
-            {"entity": {"domain": "sensor"}}),
+                     default=current.get(CONF_TIMEOUT_COUNTDOWN, d.get(CONF_TIMEOUT_COUNTDOWN, ""))): _ent("sensor"),
+
+        # Fernsteuerung: Aktive Leistung (Number, gefiltert nach 'power')
         vol.Required(CONF_ACTIVE_POWER,
-                     default=current.get(CONF_ACTIVE_POWER, d[CONF_ACTIVE_POWER])): selector.selector(
-            {"entity": {"domain": "number"}}),
+                     default=current.get(CONF_ACTIVE_POWER, d.get(CONF_ACTIVE_POWER, ""))): _ent("number", "power"),
+
+        # Fernsteuerung: Entladestrom (Number, gefiltert nach 'current')
         vol.Required(CONF_DISCHARGE_CURRENT,
-                     default=current.get(CONF_DISCHARGE_CURRENT, d[CONF_DISCHARGE_CURRENT])): selector.selector(
-            {"entity": {"domain": "number"}}),
+                     default=current.get(CONF_DISCHARGE_CURRENT, d.get(CONF_DISCHARGE_CURRENT, ""))): _ent("number", "current"),
+
+        # Fernsteuerung: Timeout setzen (Number, meist ohne spezifische device_class)
         vol.Required(CONF_TIMEOUT_SET,
-                     default=current.get(CONF_TIMEOUT_SET, d[CONF_TIMEOUT_SET])): selector.selector(
-            {"entity": {"domain": "number"}}),
+                     default=current.get(CONF_TIMEOUT_SET, d.get(CONF_TIMEOUT_SET, ""))): _ent("number"),
+
+        # Fernsteuerung: Modus Auswahl (Select)
         vol.Required(CONF_MODE_SELECT,
-                     default=current.get(CONF_MODE_SELECT, d[CONF_MODE_SELECT])): selector.selector(
-            {"entity": {"domain": "select"}}),
+                     default=current.get(CONF_MODE_SELECT, d.get(CONF_MODE_SELECT, ""))): _ent("select"),
     })
 
 
