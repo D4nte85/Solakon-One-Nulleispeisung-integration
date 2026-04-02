@@ -25,8 +25,6 @@ async def async_setup_entry(
     ])
 
 
-# ── Aktivierungs-Schalter (schreibbar) ───────────────────────────────────────
-
 class RegulationSwitch(SolakonEntity, SwitchEntity):
     """Hauptschalter — aktiviert/deaktiviert den Schreibteil der Regelung."""
     _attr_name = "Regelung aktiv"
@@ -45,8 +43,6 @@ class RegulationSwitch(SolakonEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: object) -> None:
         await self._coordinator.async_update_settings({S_REGULATION_ENABLED: False})
 
-
-# ── Diagnostische Zustands-Switches (read-only) ─────────────────────────────
 
 class DiagBoolSwitch(SolakonEntity, SwitchEntity):
     """Zeigt internen Zustand an — keine Schaltaktion möglich."""
