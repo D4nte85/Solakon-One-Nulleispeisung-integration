@@ -40,6 +40,7 @@ S_P_FACTOR = "p_factor"
 S_I_FACTOR = "i_factor"
 S_TOLERANCE = "tolerance"
 S_WAIT_TIME = "wait_time"
+S_STDDEV_WINDOW = "stddev_window"
 
 S_ZONE1_LIMIT = "zone1_limit"
 S_ZONE3_LIMIT = "zone3_limit"
@@ -71,6 +72,27 @@ S_TARIFF_POWER = "tariff_power"
 
 S_NIGHT_ENABLED = "night_enabled"
 
+# -- Dynamic Offset Settings (pro Zone) ---------------------------------------
+S_DYN_OFFSET_ENABLED = "dyn_offset_enabled"
+
+S_DYN_Z1_MIN = "dyn_z1_min"
+S_DYN_Z1_MAX = "dyn_z1_max"
+S_DYN_Z1_NOISE = "dyn_z1_noise"
+S_DYN_Z1_FACTOR = "dyn_z1_factor"
+S_DYN_Z1_NEGATIVE = "dyn_z1_negative"
+
+S_DYN_Z2_MIN = "dyn_z2_min"
+S_DYN_Z2_MAX = "dyn_z2_max"
+S_DYN_Z2_NOISE = "dyn_z2_noise"
+S_DYN_Z2_FACTOR = "dyn_z2_factor"
+S_DYN_Z2_NEGATIVE = "dyn_z2_negative"
+
+S_DYN_AC_MIN = "dyn_ac_min"
+S_DYN_AC_MAX = "dyn_ac_max"
+S_DYN_AC_NOISE = "dyn_ac_noise"
+S_DYN_AC_FACTOR = "dyn_ac_factor"
+S_DYN_AC_NEGATIVE = "dyn_ac_negative"
+
 # -- SETTINGS DEFAULTS (konservativ, Schreibteil startet DEAKTIVIERT) ----------
 SETTINGS_DEFAULTS: dict = {
     S_REGULATION_ENABLED: False,
@@ -79,6 +101,7 @@ SETTINGS_DEFAULTS: dict = {
     S_I_FACTOR: 0.05,
     S_TOLERANCE: 15,
     S_WAIT_TIME: 3,
+    S_STDDEV_WINDOW: 60,
 
     S_ZONE1_LIMIT: 50,
     S_ZONE3_LIMIT: 20,
@@ -109,4 +132,25 @@ SETTINGS_DEFAULTS: dict = {
     S_TARIFF_POWER: 800,
 
     S_NIGHT_ENABLED: False,
+
+    # Dynamic Offset
+    S_DYN_OFFSET_ENABLED: False,
+
+    S_DYN_Z1_MIN: 30,
+    S_DYN_Z1_MAX: 250,
+    S_DYN_Z1_NOISE: 15,
+    S_DYN_Z1_FACTOR: 1.5,
+    S_DYN_Z1_NEGATIVE: False,
+
+    S_DYN_Z2_MIN: 30,
+    S_DYN_Z2_MAX: 250,
+    S_DYN_Z2_NOISE: 15,
+    S_DYN_Z2_FACTOR: 1.5,
+    S_DYN_Z2_NEGATIVE: False,
+
+    S_DYN_AC_MIN: 30,
+    S_DYN_AC_MAX: 250,
+    S_DYN_AC_NOISE: 15,
+    S_DYN_AC_FACTOR: 1.5,
+    S_DYN_AC_NEGATIVE: False,
 }
