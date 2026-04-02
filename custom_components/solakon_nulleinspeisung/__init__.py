@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     DOMAIN, PLATFORMS, S_REGULATION_ENABLED,
-    CONF_GRID_SENSOR, CONF_SOLAR_SENSOR, CONF_SOC_SENSOR,
+    CONF_GRID_SENSOR, CONF_ACTUAL_SENSOR, CONF_SOLAR_SENSOR, CONF_SOC_SENSOR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,9 +73,11 @@ async def _ws_get_status(
         "zone_label": coord.zone_label,
         "mode_label": coord.mode_label,
         "last_action": coord.last_action,
+        "last_action_ts": coord.last_action_ts,
         "last_error": coord.last_error,
         "integral": round(coord.integral, 2),
         "grid": coord._flt(cfg.get(CONF_GRID_SENSOR, ""), 0),
+        "actual_power": coord._flt(cfg.get(CONF_ACTUAL_SENSOR, ""), 0),
         "solar": coord._flt(cfg.get(CONF_SOLAR_SENSOR, ""), 0),
         "soc": coord._flt(cfg.get(CONF_SOC_SENSOR, ""), 0),
         "cycle_active": coord.cycle_active,
