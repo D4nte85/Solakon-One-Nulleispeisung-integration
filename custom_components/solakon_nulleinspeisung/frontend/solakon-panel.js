@@ -30,8 +30,10 @@ const FIELDS = {
     { k: "p_factor",    l: "P-Faktor (Proportional)", d: "Reagiert auf aktuelle Abweichung. Höher = aggressiver. Typisch: 0.8–1.5", t: "num", min: 0.1, max: 5, step: 0.1 },
     { k: "i_factor",    l: "I-Faktor (Integral)",      d: "Eliminiert bleibende Abweichungen. Typisch: 0.03–0.08", t: "num", min: 0, max: 0.5, step: 0.01 },
     { k: "tolerance",   l: "Toleranzbereich (W)",       d: "Totband um Regelziel — keine Korrektur innerhalb dieses Bereichs", t: "num", min: 0, max: 200, step: 1 },
-    { k: "wait_time",   l: "Wartezeit (s)",             d: "Verzögerung nach Leistungsänderung. Gibt WR und Sensoren Zeit.", t: "num", min: 0, max: 30, step: 1 },
+    { k: "wait_time",   l: "Wartezeit / Max-Timeout (s)", d: "Feste Wartezeit (ohne Self-Adjust) oder maximale Wartezeit als Sicherheitsnetz (mit Self-Adjust)", t: "num", min: 0, max: 30, step: 1 },
     { k: "stddev_window", l: "Stabw.-Fenster (s)",      d: "Zeitfenster für internen Standardabweichungs-Sensor (30–300 s)", t: "num", min: 30, max: 300, step: 10 },
+    { k: "self_adjust_enabled", l: "🎯 Self-Adjusting Wait", d: "Wartet auf tatsächliche WR-Ausgangsleistung statt fester Wartezeit. Wartezeit wird zum Max-Timeout.", t: "bool" },
+    { k: "self_adjust_tolerance", l: "📏 Zielwert-Toleranz (W)", d: "Abweichung in Watt, ab der der Zielwert als erreicht gilt", t: "num", min: 1, max: 50, step: 1 },
   ],
   zones: [
     { k: "zone1_limit",    l: "Zone 1 SOC-Schwelle (%)", d: "SOC über diesem Wert → Zone 1 (aggressiv)", t: "num", min: 1, max: 99, step: 1 },
@@ -273,11 +275,13 @@ class SolakonPanel extends HTMLElement {
       <div class="zone-banner" id="zone-banner">Lade…</div>
       <div class="stat-grid">
         <div class="stat"><div class="lbl">Netzleistung</div><div class="val" id="st-grid">—</div></div>
+        <div class="stat"><div class="lbl">Ausgangsleistung</div><div class="val" id="st-actual">—</div></div>
         <div class="stat"><div class="lbl">Solarleistung</div><div class="val" id="st-solar">—</div></div>
         <div class="stat"><div class="lbl">SOC</div><div class="val" id="st-soc">—</div></div>
         <div class="stat"><div class="lbl">PI Integral</div><div class="val" id="st-int">—</div></div>
         <div class="stat"><div class="lbl">Netz-StdDev</div><div class="val" id="st-stddev">—</div></div>
         <div class="stat"><div class="lbl">Dyn. Offset Z1 / Z2</div><div class="val" id="st-dynoff">—</div></div>
+        <div class="stat"><div class="lbl">Seit letzter Änderung</div><div class="val" id="st-elapsed">—</div></div>
       </div>
       <div style="margin-top:10px"><span class="lbl">Letzte Aktion:</span> <span id="st-action">—</span></div>
       <div style="margin-top:4px"><span class="lbl">Fehler:</span> <span id="st-error" style="color:#dc2626">—</span></div>
@@ -295,6 +299,7 @@ class SolakonPanel extends HTMLElement {
 
     const set = (id, v) => { const e = this.shadowRoot.getElementById(id); if (e) e.textContent = v; };
     set("st-grid", `${st.grid ?? "—"} W`);
+    set("st-actual", `${st.actual_power ?? "—"} W`);
     set("st-solar", `${st.solar ?? "—"} W`);
     set("st-soc", `${st.soc ?? "—"} %`);
     set("st-int", `${(st.integral ?? 0).toFixed(2)}`);
@@ -302,6 +307,22 @@ class SolakonPanel extends HTMLElement {
     set("st-dynoff", st.dyn_offset_enabled ? `${st.dyn_z1?.toFixed(0) ?? "—"} / ${st.dyn_z2?.toFixed(0) ?? "—"} W` : "inaktiv");
     set("st-action", st.last_action || "—");
     set("st-error", st.last_error || "Keine");
+
+    // Elapsed seit letzter Aktion
+    if (st.last_action_ts) {
+      const elapsed = Math.round(Date.now() / 1000 - st.last_action_ts);
+      if (elapsed < 0) {
+        set("st-elapsed", "—");
+      } else if (elapsed < 60) {
+        set("st-elapsed", `${elapsed} s`);
+      } else if (elapsed < 3600) {
+        set("st-elapsed", `${Math.floor(elapsed / 60)} min ${elapsed % 60} s`);
+      } else {
+        set("st-elapsed", `${Math.floor(elapsed / 3600)} h ${Math.floor((elapsed % 3600) / 60)} min`);
+      }
+    } else {
+      set("st-elapsed", "—");
+    }
 
     const fl = this.shadowRoot.getElementById("st-flags");
     if (fl) {
