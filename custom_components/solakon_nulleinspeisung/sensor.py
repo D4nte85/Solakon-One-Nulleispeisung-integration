@@ -1,9 +1,9 @@
-"""Sensor platform — zone, mode label, last action (diagnostisch)."""
+"""Sensor platform — zone, mode label, last action, StdDev (diagnostisch)."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -27,6 +27,7 @@ async def async_setup_entry(
         ZoneSensor(coord),
         ModeTextSensor(coord),
         LastActionSensor(coord),
+        GridStdDevSensor(coord),
     ])
 
 
@@ -81,3 +82,35 @@ class LastActionSensor(SolakonEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         return self._coordinator.last_action
+
+
+class GridStdDevSensor(SolakonEntity, SensorEntity):
+    """Netz-Standardabweichung — intern berechnet aus Grid-Messwert-Stream."""
+    _attr_name = "Netz-Standardabweichung"
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coord: SolakonCoordinator) -> None:
+        super().__init__(coord, "grid_stddev")
+
+    @property
+    def native_value(self) -> float:
+        return self._coordinator.grid_stddev
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        s = self._coordinator.settings
+        dyn = bool(s.get("dyn_offset_enabled", False))
+        attrs = {
+            "window_seconds": s.get("stddev_window", 60),
+            "sample_count": len(self._coordinator._grid_samples),
+            "dynamic_offset_active": dyn,
+        }
+        if dyn:
+            attrs["dyn_offset_z1"] = self._coordinator.dyn_offset_z1
+            attrs["dyn_offset_z2"] = self._coordinator.dyn_offset_z2
+            attrs["dyn_offset_ac"] = self._coordinator.dyn_offset_ac
+        return attrs
