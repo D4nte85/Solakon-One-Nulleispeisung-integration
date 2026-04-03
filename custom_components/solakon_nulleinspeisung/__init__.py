@@ -74,6 +74,8 @@ async def _ws_get_status(
         "mode_label": coord.mode_label,
         "last_action": coord.last_action,
         "last_action_ts": coord.last_action_ts,
+        "last_output_ts": coord.last_output_ts,
+        "mode_label_ts": coord.mode_label_ts,
         "last_error": coord.last_error,
         "integral": round(coord.integral, 2),
         "grid": coord._flt(cfg.get(CONF_GRID_SENSOR, ""), 0),
