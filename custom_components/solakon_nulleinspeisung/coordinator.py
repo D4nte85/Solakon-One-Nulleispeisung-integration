@@ -345,7 +345,7 @@ class SolakonCoordinator:
         self.hass.async_create_task(self._async_regulate())
 
     async def _async_regulate(self) -> None:
-        """Komplette Regelschleife — identisch zum Blueprint-Ablauf."""
+        """Komplette Regelschleife."""
         if self._lock.locked():
             return
         async with self._lock:
@@ -572,7 +572,7 @@ class SolakonCoordinator:
     # ── Falls (Zonenwechsel-Logik) ───────────────────────────────────────────
 
     async def _execute_falls(self, **v) -> str | None:
-        """Prüft alle Falls in der Blueprint-Reihenfolge. Gibt den Fall-Name zurück oder None."""
+        """Prüft alle Falls in Reihenfolge. Gibt den Fall-Name zurück oder None."""
 
         soc = v["soc"]
         mode = v["mode"]
@@ -833,7 +833,7 @@ class SolakonCoordinator:
         i_factor: float,
         ac_charge_mode: bool = False,
     ) -> float:
-        """PI-Regler-Berechnung — identisch zum Blueprint PI-Script."""
+        """PI-Regler-Berechnung mit modusabhängiger Fehlerrichtung."""
 
         # Fehlerrichtung modusabhängig:
         #   Normal:    grid - target  → positiv bei Netzbezug (Output erhöhen)
