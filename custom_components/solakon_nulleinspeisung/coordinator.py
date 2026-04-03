@@ -28,10 +28,9 @@ from .const import (
     S_TARIFF_EXP_THRESHOLD, S_TARIFF_SOC_TARGET, S_TARIFF_POWER,
     S_NIGHT_ENABLED,
     S_SELF_ADJUST, S_SELF_ADJUST_TOL,
-    S_DYN_OFFSET_ENABLED,
-    S_DYN_Z1_MIN, S_DYN_Z1_MAX, S_DYN_Z1_NOISE, S_DYN_Z1_FACTOR, S_DYN_Z1_NEGATIVE,
-    S_DYN_Z2_MIN, S_DYN_Z2_MAX, S_DYN_Z2_NOISE, S_DYN_Z2_FACTOR, S_DYN_Z2_NEGATIVE,
-    S_DYN_AC_MIN, S_DYN_AC_MAX, S_DYN_AC_NOISE, S_DYN_AC_FACTOR, S_DYN_AC_NEGATIVE,
+    S_DYN_Z1_ENABLED, S_DYN_Z1_MIN, S_DYN_Z1_MAX, S_DYN_Z1_NOISE, S_DYN_Z1_FACTOR, S_DYN_Z1_NEGATIVE,
+    S_DYN_Z2_ENABLED, S_DYN_Z2_MIN, S_DYN_Z2_MAX, S_DYN_Z2_NOISE, S_DYN_Z2_FACTOR, S_DYN_Z2_NEGATIVE,
+    S_DYN_AC_ENABLED, S_DYN_AC_MIN, S_DYN_AC_MAX, S_DYN_AC_NOISE, S_DYN_AC_FACTOR, S_DYN_AC_NEGATIVE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -92,7 +91,6 @@ class SolakonCoordinator:
             self.settings = SETTINGS_DEFAULTS.copy()
             _LOGGER.info("Solakon: Standardwerte geladen")
 
-        # Integral aus Storage wiederherstellen
         if "integral" in (stored or {}):
             self.integral = float(stored["integral"])
 
@@ -111,7 +109,6 @@ class SolakonCoordinator:
             )
             self._unsub_trackers.append(unsub)
 
-        # Tarif-Sensor dynamisch tracken
         self._update_tariff_tracker()
 
     async def async_shutdown(self) -> None:
@@ -134,7 +131,6 @@ class SolakonCoordinator:
         await self._store.async_save({**self.settings, "integral": self.integral})
         _LOGGER.info("Solakon: Einstellungen gespeichert")
 
-        # Tarif-Tracker aktualisieren wenn sich Sensor oder Aktivierung ändert
         new_tariff = self.settings.get(S_TARIFF_PRICE_SENSOR, "")
         new_tariff_enabled = self.settings.get(S_TARIFF_ENABLED, False)
         if old_tariff != new_tariff or old_tariff_enabled != new_tariff_enabled:
@@ -198,7 +194,6 @@ class SolakonCoordinator:
         tolerance = float(s.get(S_SELF_ADJUST_TOL, 2))
         actual_eid = self.entry.data.get(CONF_ACTUAL_SENSOR, "")
 
-        # Im AC-Lademodus meldet actual_power_sensor negative Werte → Zielwert negieren
         compare_target = -target if ac_charge_mode else target
 
         await asyncio.sleep(1.0)
@@ -232,11 +227,9 @@ class SolakonCoordinator:
 
         self._grid_samples.append((now, grid_value))
 
-        # Alte Samples außerhalb des Zeitfensters entfernen
         while self._grid_samples and self._grid_samples[0][0] < cutoff:
             self._grid_samples.popleft()
 
-        # Populations-Standardabweichung (mind. 2 Samples)
         n = len(self._grid_samples)
         if n < 2:
             self.grid_stddev = 0.0
@@ -376,7 +369,7 @@ class SolakonCoordinator:
 
         # ── 1b. StdDev aktualisieren + dynamische Offsets berechnen ──────────
         self._update_stddev(grid)
-        if bool(s.get(S_DYN_OFFSET_ENABLED, False)):
+        if any(s.get(k, False) for k in (S_DYN_Z1_ENABLED, S_DYN_Z2_ENABLED, S_DYN_AC_ENABLED)):
             self._update_dynamic_offsets()
 
         # ── 2. Settings auslesen ─────────────────────────────────────────────
@@ -390,10 +383,12 @@ class SolakonCoordinator:
         pv_reserve = int(s[S_PV_RESERVE])
         discharge_max = int(s[S_DISCHARGE_MAX])
 
-        # Offsets: dynamisch (wenn aktiv) oder statisch
-        dyn_active = bool(s.get(S_DYN_OFFSET_ENABLED, False))
-        offset_1 = self.dyn_offset_z1 if dyn_active else float(s[S_OFFSET_1])
-        offset_2 = self.dyn_offset_z2 if dyn_active else float(s[S_OFFSET_2])
+        # Offsets: pro Zone dynamisch oder statisch
+        dyn_z1_active = bool(s.get(S_DYN_Z1_ENABLED, False))
+        dyn_z2_active = bool(s.get(S_DYN_Z2_ENABLED, False))
+        dyn_ac_active = bool(s.get(S_DYN_AC_ENABLED, False))
+        offset_1 = self.dyn_offset_z1 if dyn_z1_active else float(s[S_OFFSET_1])
+        offset_2 = self.dyn_offset_z2 if dyn_z2_active else float(s[S_OFFSET_2])
 
         # Überschuss-Parameter
         surplus_enabled = bool(s[S_SURPLUS_ENABLED])
@@ -407,7 +402,7 @@ class SolakonCoordinator:
         ac_power_limit = int(s[S_AC_POWER_LIMIT])
         ac_hysteresis = int(s[S_AC_HYSTERESIS])
         ac_offset_raw = float(s[S_AC_OFFSET])
-        ac_offset = self.dyn_offset_ac if dyn_active else ac_offset_raw
+        ac_offset = self.dyn_offset_ac if dyn_ac_active else ac_offset_raw
         ac_p = float(s[S_AC_P_FACTOR])
         ac_i = float(s[S_AC_I_FACTOR])
 
@@ -443,9 +438,6 @@ class SolakonCoordinator:
         # ── 4. Abgeleitete Variablen ─────────────────────────────────────────
         target_offset = offset_1 if self.cycle_active else offset_2
 
-        # Surplus-Berechnung: Eintritts- und Austritts-Bedingungen mit Hysterese
-        surplus_entry = False
-        surplus_exit = False
         if surplus_enabled:
             surplus_entry = (
                 soc >= surplus_threshold
@@ -459,15 +451,13 @@ class SolakonCoordinator:
         else:
             new_surplus = False
 
-        # Nacht-Bedingung: PV unter Reserve und Zyklus nicht aktiv
         is_night = night_enabled and solar < pv_reserve and not self.cycle_active
 
-        # Tarif-Preis lesen (999 als Fallback → kein Günstig-Trigger)
         tariff_price = 0.0
         if tariff_enabled and tariff_sensor:
             tariff_price = self._flt(tariff_sensor, 999.0)
 
-        # ── 5. Falls / Zonenwechsel (choose-Block) ──────────────────────────
+        # ── 5. Falls / Zonenwechsel ──────────────────────────────────────────
         fall_executed = await self._execute_falls(
             soc=soc, grid=grid, solar=solar, actual=actual, mode=mode,
             current_power=current_power,
@@ -489,7 +479,6 @@ class SolakonCoordinator:
         current_power = self._flt(cfg[CONF_ACTIVE_POWER])
         mode = self._str(cfg[CONF_MODE_SELECT])
 
-        # Dynamisches Power-Limit zonenabhängig neu berechnen
         if mode == MODE_AC_CHARGE:
             dynamic_max = ac_power_limit
         elif self.cycle_active:
@@ -497,20 +486,18 @@ class SolakonCoordinator:
         else:
             dynamic_max = max(0, solar - pv_reserve)
 
-        # Regelziel mit frischem Zyklus-Status
         target_offset = offset_1 if self.cycle_active else offset_2
 
-        # at_max/at_min mit frischen Werten nach Falls (Hard Limit als Obergrenze)
         at_max_limit = current_power >= hard_limit
         at_min_limit = current_power <= 0
 
-        # ── 7. PI-Gate: Nur Modus '1' oder '3' darf PI-Bereich betreten ─────
+        # ── 7. PI-Gate ───────────────────────────────────────────────────────
         if mode not in (MODE_DISCHARGE, MODE_AC_CHARGE):
             self._update_zone_display(soc, zone1_limit, zone3_limit, mode)
             self.notify_listeners()
             return
 
-        # ── 8. Entladestrom zonenabhängig: Surplus → 2 A, Zyklus → Max, sonst → 0 A
+        # ── 8. Entladestrom zonenabhängig ────────────────────────────────────
         if self.surplus_active:
             await self._set_discharge(2)
         elif self.cycle_active and mode != MODE_AC_CHARGE:
@@ -518,13 +505,12 @@ class SolakonCoordinator:
         elif not self.ac_charge_active and not self.tariff_charge_active:
             await self._set_discharge(0)
 
-        # ── 9. Timeout-Reset: Countdown < 120s → Timer-Toggle (3598↔3599) ───
+        # ── 9. Timeout-Reset ─────────────────────────────────────────────────
         if timer_val < 120 and self._entity_ok(cfg[CONF_TIMEOUT_COUNTDOWN]):
             await self._timer_toggle()
 
         # ── PI-Pfade ─────────────────────────────────────────────────────────
         if self.surplus_active:
-            # Zone 0 — Überschuss: Output → Hard Limit, Integral einfrieren
             await self._set_output(hard_limit)
             self.mode_label = "Überschuss-Einspeisung"
             self._set_last_action(f"Zone 0: Output → {hard_limit} W")
@@ -545,16 +531,13 @@ class SolakonCoordinator:
             )
 
         elif self.tariff_charge_active:
-            # Tarif-Laden — direktes Setzen (kein PI, feste Leistung)
             await self._set_output(tariff_power)
             self._set_last_action(f"Tarif-Laden: {tariff_power} W")
 
         else:
-            # Normaler PI-Regler (Zone 1 / Zone 2)
             grid_error = grid - target_offset
             grid_error_abs = abs(grid_error)
 
-            # PI nur wenn Fehler > Toleranz UND kein At-Limit in Fehlerrichtung
             if grid_error_abs > tolerance and not (at_max_limit and grid_error > 0) and not (at_min_limit and grid_error < 0):
                 new_pw = self._pi_calculate(
                     grid, current_power, target_offset, dynamic_max,
@@ -564,12 +547,11 @@ class SolakonCoordinator:
                 self._set_last_action(f"PI: {current_power:.0f} → {new_pw:.0f} W")
                 await self._wait_for_target(new_pw)
             else:
-                # Integral-Decay: 5% Abbau pro Zyklus wenn |Integral| > 10
                 if abs(self.integral) > 10:
                     self.integral *= 0.95
                     self._set_last_action("Integral-Decay (5%)")
 
-        # ── 10. Integral persistieren + Display aktualisieren ────────────────
+        # ── 10. Persistieren + Display ───────────────────────────────────────
         await self._save_integral()
         self._update_zone_display(soc, zone1_limit, zone3_limit, mode)
         self.notify_listeners()
@@ -702,7 +684,7 @@ class SolakonCoordinator:
             self._set_last_action("Fall HT: Tarif-Laden beendet")
             return "HT"
 
-        # ── Mittlere Tarifstufe — Discharge-Lock (nur Zone 2) ───────────────
+        # ── Mittlere Tarifstufe — Discharge-Lock ─────────────────────────────
         if (
             v["tariff_enabled"]
             and v["tariff_price"] >= v["tariff_cheap"]
@@ -820,13 +802,11 @@ class SolakonCoordinator:
         else:
             raw_error = grid_power - target_offset
 
-        # Kapazitäts-Clamping
         if raw_error > 0:
             error = min(raw_error, max_power - current_power)
         else:
             error = max(raw_error, 0 - current_power)
 
-        # Integral aktualisieren (Anti-Windup ±1000)
         integral_new = max(-1000, min(1000, self.integral + error))
         self.integral = integral_new
 
