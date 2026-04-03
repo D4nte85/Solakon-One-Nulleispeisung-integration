@@ -603,7 +603,7 @@ class SolakonPanel extends HTMLElement {
 
     const set = (id, v) => { const e = this.shadowRoot.getElementById(id); if (e) e.textContent = v; };
 
-    set("st-grid",   `${st.grid ?? "—"} W`);
+    set("st-grid",   `${st.grid.toFixed(0) ?? "—"} W`);
     set("st-actual", `${st.actual_power ?? "—"} W`);
     set("st-solar",  `${st.solar ?? "—"} W`);
     set("st-soc",    `${st.soc ?? "—"} %`);
