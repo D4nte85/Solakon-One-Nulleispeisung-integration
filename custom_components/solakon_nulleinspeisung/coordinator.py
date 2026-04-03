@@ -184,7 +184,7 @@ class SolakonCoordinator:
 
     # ── Self-Adjusting Wait ──────────────────────────────────────────────────
 
-    async def _wait_for_target(self, target: float) -> None:
+    async def _wait_for_target(self, target: float, ac_charge_mode: bool = False) -> None:
         """Wartet bis actual_power den Zielwert erreicht, oder max wait_time."""
         s = self.settings
         wait_max = float(s.get(S_WAIT_TIME, 3))
@@ -196,7 +196,9 @@ class SolakonCoordinator:
         tolerance = float(s.get(S_SELF_ADJUST_TOL, 2))
         actual_eid = self.entry.data.get(CONF_ACTUAL_SENSOR, "")
 
-        # Mindestwartezeit: Modbus-Befehl muss erst ankommen
+        # Im AC-Lademodus meldet actual_power_sensor negative Werte → Zielwert negieren
+        compare_target = -target if ac_charge_mode else target
+
         await asyncio.sleep(1.0)
 
         start = time.monotonic()
@@ -204,10 +206,10 @@ class SolakonCoordinator:
 
         while remaining > 0:
             actual = self._flt(actual_eid)
-            if abs(actual - target) <= tolerance:
+            if abs(actual - compare_target) <= tolerance:
                 _LOGGER.debug(
                     "Solakon: Zielwert erreicht (actual=%.0f, target=%.0f) nach %.1fs",
-                    actual, target, time.monotonic() - start,
+                    actual, compare_target, time.monotonic() - start,
                 )
                 return
             await asyncio.sleep(min(1.0, remaining))
@@ -215,7 +217,7 @@ class SolakonCoordinator:
 
         _LOGGER.debug(
             "Solakon: Max-Wartezeit (%.0fs), actual=%.0f, target=%.0f",
-            wait_max, self._flt(actual_eid), target,
+            wait_max, self._flt(actual_eid), compare_target,
         )
 
     # ── StdDev-Berechnung (Ringpuffer) ───────────────────────────────────────
@@ -527,8 +529,6 @@ class SolakonCoordinator:
             await self._wait_for_target(hard_limit)
 
         elif self.ac_charge_active:
-            # AC Laden — invertierter PI (target - grid), keine at_max/at_min Guards
-            # ac_offset als eigenes Regelziel, ac_power_limit als Obergrenze
             ac_grid_err = grid - ac_offset
             if abs(ac_grid_err) > tolerance:
                 new_pw = self._pi_calculate(
@@ -537,7 +537,10 @@ class SolakonCoordinator:
                 )
                 await self._set_output(new_pw)
                 self._set_last_action(f"AC-PI: {current_power:.0f} → {new_pw:.0f} W")
-            await self._wait_for_target(new_pw if abs(ac_grid_err) > tolerance else current_power)
+            await self._wait_for_target(
+                new_pw if abs(ac_grid_err) > tolerance else current_power,
+                ac_charge_mode=True,
+            )
 
         elif self.tariff_charge_active:
             # Tarif-Laden — direktes Setzen (kein PI, feste Leistung)
@@ -654,11 +657,11 @@ class SolakonCoordinator:
             await self._set_mode(MODE_DISABLED)
             self._set_last_action("Fall C: Zone 3 Absicherung")
             return "C"
-
+            
         # ── Fall D: Recovery ─────────────────────────────────────────────────
-        # VOR Fall G! Schließt Modus '3' aus (AC Laden läuft ungestört weiter).
+        # Auch wenn nur ac_charge_active (cycle_active=False / Zone 2)
         if (
-            self.cycle_active
+            (self.cycle_active or self.ac_charge_active)
             and mode not in (MODE_DISCHARGE, MODE_AC_CHARGE)
             and soc > zone3
         ):
@@ -727,9 +730,10 @@ class SolakonCoordinator:
             return "TM"
 
         # ── Fall G: AC Laden Start ───────────────────────────────────────────
-        # Guard: Modus ≠ '3' verhindert Re-Eintritt wenn AC Laden bereits aktiv
+        # Guard: not self.ac_charge_active verhindert Re-Eintritt bei staler Mode-Entity
         if (
             v["ac_enabled"]
+            and not self.ac_charge_active
             and soc < v["ac_soc_target"]
             and mode != MODE_AC_CHARGE
             and (grid + actual) < -v["ac_hysteresis"]
