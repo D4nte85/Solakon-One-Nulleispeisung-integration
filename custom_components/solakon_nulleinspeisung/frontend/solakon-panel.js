@@ -138,7 +138,7 @@ const TAB_LAYOUT = {
       {
         title: "Eintritt & Grenzen", icon: "⚡", color: "#7c3aed",
         fields: [
-          { k: "ac_soc_target",  l: "Ladeziel SOC (%)",        d: "Laden stoppt wenn SOC diesen Wert erreicht. Empfohlen: ≤ Zone-1-Schwelle — so übernimmt Zone 1 nahtlos nach dem Laden.", t: "num", min: 50, max: 100, step: 1 },
+          { k: "ac_soc_target",  l: "Ladeziel SOC (%)",        d: "Laden stoppt wenn SOC diesen Wert erreicht. Empfohlen: > Zone-1-Schwelle — so übernimmt Zone 1 direkt nach dem Laden und fährt Nulleinspeisung.", t: "num", min: 50, max: 100, step: 1 },
           { k: "ac_power_limit", l: "Max. Ladeleistung (W)",   d: "Absolute Obergrenze der AC-Ladeleistung. Wird als max_power an den PI-Regler übergeben.", t: "num", min: 100, max: 2000, step: 50 },
           { k: "ac_hysteresis",  l: "Eintritts-Hysterese (W)", d: "Eintritt: (Grid + Output) < −Hysterese. Austritt: Grid ≥ (Offset + Hysterese) UND Output = 0 W. Der Output = 0 W-Guard verhindert Fehlauslösung während der PI noch regelt.", t: "num", min: 10, max: 500, step: 10 },
           { k: "ac_offset",      l: "Regel-Offset (W)",        d: "Regelziel für die Netzleistung im AC-Lade-Modus. Negativ = Einspeisung angestrebt → PI erhöht Ladeleistung. Wird überschrieben wenn Dyn. Offset für Zone AC aktiv ist.", t: "num", min: -500, max: 200, step: 5 },
