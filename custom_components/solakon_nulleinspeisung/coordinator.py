@@ -517,7 +517,7 @@ class SolakonCoordinator:
             self.mode_label = "Überschuss-Einspeisung"
             self._set_last_action(f"Zone 0: Output → {hard_limit} W")
             await self._wait_for_target(hard_limit)
-            
+
         elif self.ac_charge_active:
             ac_grid_err = grid - ac_offset
             new_pw = current_power
@@ -635,10 +635,18 @@ class SolakonCoordinator:
             return "C"
 
         # ── Fall D: Recovery ─────────────────────────────────────────────────
+        # Tarif-Lock blockiert Recovery für normalen Discharge (ac_charge_active-Recovery bleibt erlaubt)
         if (
             (self.cycle_active or self.ac_charge_active)
             and mode not in (MODE_DISCHARGE, MODE_AC_CHARGE)
             and soc > zone3
+            and not (
+                not self.ac_charge_active
+                and not self.tariff_charge_active
+                and v["tariff_enabled"]
+                and v["tariff_price"] >= v["tariff_cheap"]
+                and v["tariff_price"] < v["tariff_exp"]
+            )
         ):
             await self._timer_toggle()
             if self.ac_charge_active:
@@ -649,11 +657,13 @@ class SolakonCoordinator:
             return "D"
 
         # ── Fall GT: Tarif-Laden Start ───────────────────────────────────────
+        # Überschuss-Einspeisung hat Vorrang — kein Tarif-Laden während Zone 0 aktiv
         if (
             v["tariff_enabled"]
             and v["tariff_price"] < v["tariff_cheap"]
             and soc < v["tariff_soc"]
             and not self.tariff_charge_active
+            and not self.surplus_active
             and mode != MODE_AC_CHARGE
         ):
             self.tariff_charge_active = True
@@ -685,14 +695,15 @@ class SolakonCoordinator:
             return "HT"
 
         # ── Mittlere Tarifstufe — Discharge-Lock ─────────────────────────────
+        # Sperrt Zone 1 und Zone 2 (cycle_active egal). Überschuss hat Vorrang.
         if (
             v["tariff_enabled"]
             and v["tariff_price"] >= v["tariff_cheap"]
             and v["tariff_price"] < v["tariff_exp"]
             and not self.tariff_charge_active
             and not self.ac_charge_active
+            and not self.surplus_active
             and mode == MODE_DISCHARGE
-            and not self.cycle_active
         ):
             self.integral = 0.0
             await self._set_output(0)
@@ -701,9 +712,11 @@ class SolakonCoordinator:
             return "TM"
 
         # ── Fall G: AC Laden Start ───────────────────────────────────────────
+        # Überschuss-Einspeisung hat Vorrang — kein AC Laden während Zone 0 aktiv
         if (
             v["ac_enabled"]
             and not self.ac_charge_active
+            and not self.surplus_active
             and soc < v["ac_soc_target"]
             and mode != MODE_AC_CHARGE
             and (grid + actual) < -v["ac_hysteresis"]
@@ -754,12 +767,18 @@ class SolakonCoordinator:
             return "I"
 
         # ── Fall E: Zone 2 Start ─────────────────────────────────────────────
+        # Tarif-Lock verhindert Re-Aktivierung bei mittlerem/günstigem Preis
         if (
             not self.ac_charge_active
             and zone3 < soc <= zone1
             and not self.cycle_active
             and mode == MODE_DISABLED
             and not v["is_night"]
+            and not (
+                v["tariff_enabled"]
+                and v["tariff_price"] >= v["tariff_cheap"]
+                and v["tariff_price"] < v["tariff_exp"]
+            )
         ):
             self.integral = 0.0
             await self._timer_toggle()
@@ -796,7 +815,6 @@ class SolakonCoordinator:
         ac_charge_mode: bool = False,
     ) -> float:
         """PI-Regler-Berechnung mit modusabhängiger Fehlerrichtung."""
-
         if ac_charge_mode:
             raw_error = target_offset - grid_power
         else:
