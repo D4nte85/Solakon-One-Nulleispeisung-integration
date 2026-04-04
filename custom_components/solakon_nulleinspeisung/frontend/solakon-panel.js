@@ -325,6 +325,33 @@ class SolakonPanel extends HTMLElement {
         }
         .wrap { max-width: 940px; margin: 0 auto; padding: 16px; }
 
+        /* ── App bar (Burger-Menü für HA-Sidebar) ────────────────────────── */
+        .app-bar {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          background: var(--app-header-background-color, var(--primary-color, #03a9f4));
+          color: var(--app-header-text-color, #fff);
+          display: flex;
+          align-items: center;
+          height: 56px;
+          padding: 0 4px;
+        }
+        .menu-btn {
+          background: none;
+          border: none;
+          color: inherit;
+          cursor: pointer;
+          padding: 10px 12px;
+          border-radius: 50%;
+          font-size: 1.4em;
+          line-height: 1;
+          display: flex;
+          align-items: center;
+        }
+        .menu-btn:hover { background: rgba(255,255,255,0.12); }
+        .app-bar-title { font-size: 1.05em; font-weight: 500; flex: 1; padding-left: 4px; }
+
         /* ── Top card (Titel + Regelschalter + Info) ─────────────────────── */
         .top-card {
           border: 1px solid var(--divider-color, #ddd);
@@ -473,6 +500,10 @@ class SolakonPanel extends HTMLElement {
         #toast { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 8px; color: #fff; z-index: 999; font-size: .9em; }
       </style>
 
+      <div class="app-bar">
+        <button class="menu-btn" id="menu-btn">☰</button>
+        <span class="app-bar-title">Solakon ONE</span>
+      </div>
       <div class="wrap">
 
         <!-- ── Top card ──────────────────────────────────────────── -->
@@ -509,6 +540,9 @@ class SolakonPanel extends HTMLElement {
     `;
 
     this.shadowRoot.getElementById("reg-bar").addEventListener("click", () => this._toggleRegulation());
+    this.shadowRoot.getElementById("menu-btn").addEventListener("click", () => {
+      this.dispatchEvent(new Event("hass-open-menu", { bubbles: true, composed: true }));
+    });
 
     const tabWrap = this.shadowRoot.getElementById("tabs");
     for (const t of TABS) {
