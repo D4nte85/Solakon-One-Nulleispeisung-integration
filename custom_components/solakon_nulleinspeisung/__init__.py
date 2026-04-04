@@ -15,6 +15,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .const import (
     DOMAIN, PLATFORMS, S_REGULATION_ENABLED,
     CONF_GRID_SENSOR, CONF_ACTUAL_SENSOR, CONF_SOLAR_SENSOR, CONF_SOC_SENSOR,
+    STORAGE_VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
