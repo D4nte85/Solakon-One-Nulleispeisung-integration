@@ -8,6 +8,7 @@
   "config_flow": true,
   "integration_type": "hub",
   "iot_class": "local_polling",
+  "single_config_entry": true,
   "requirements": [],
   "dependencies": ["frontend"],
   "after_dependencies": ["number", "select", "sensor", "switch"]
