@@ -26,35 +26,35 @@ const TABS = [
 const TAB_DOCS = {
   pi: {
     summary: "PI-Regler — Kern des Regelkreises",
-    text: "Der P-Anteil reagiert sofort auf Abweichungen (Proportional), der I-Anteil summiert Abweichungen über die Zeit und eliminiert dauerhaften Offset (Integral). Anti-Windup begrenzt das Integral auf ±1000. Bei jedem Zonenwechsel wird das Integral zurückgesetzt. Toleranz-Decay baut das Integral um 5 % pro Zyklus ab, wenn der Fehler innerhalb der Toleranz liegt und |Integral| > 10.\n\nEinstieg: P = 0.5, I = 0, Wartezeit = 15 s. P schrittweise erhöhen bis stabil. I erst einführen wenn P-Regelung stabil ist.",
+    text: "Regelgröße: Netzleistung (positiv = Bezug, negativ = Einspeisung). Stellgröße: AC-Ausgangsleistung des Wechselrichters.\n\nP-Anteil: reagiert sofort auf die aktuelle Abweichung (Grid − Offset).\nI-Anteil: summiert Abweichungen über die Zeit auf, eliminiert bleibende Regelabweichungen.\nAnti-Windup: Integral auf ±1000 begrenzt.\nIntegral-Reset: bei jedem Zonenwechsel auf 0.\nToleranz-Decay: −5 %/Zyklus wenn Fehler ≤ Totband und |Integral| > 10.\nZone 0: Integral eingefroren, kein PI-Aufruf.\n\nFehlerberechnung modusabhängig:\n• Normal: raw_error = Grid − Offset\n• AC Laden: raw_error = Offset − Grid (invertiert)\n\nSelf-Adjusting Wait: Nach einem Stelleingriff wird auf die tatsächliche WR-Ausgangsleistung gewartet statt einer fixen Pause. Sobald actual_power den Sollwert ±Toleranz erreicht, geht der Regler weiter. Die konfigurierte Wartezeit wirkt als maximales Timeout.\n\nEinstieg: P = 0.5, I = 0. P schrittweise erhöhen bis Output zu pendeln beginnt, dann einen Schritt zurück. I erst einführen wenn P-Regelung stabil ist.",
   },
   zones: {
     summary: "SOC-Zonenlogik — Verhalten abhängig vom Batterieladestand",
-    text: "Zone 1 (aggressiv): SOC > Zone-1-Schwelle → erhöhter Entladestrom, hoher PI-Offset. Läuft bis Zone-3-Stopp — kein Yo-Yo zwischen den Zonen.\n\nZone 2 (schonend): Normalbetrieb. Output dynamisch auf max(0, PV − Reserve) begrenzt. Entladestrom 0 A.\n\nZone 3 (Stopp): SOC < Zone-3-Schwelle → Output 0 W, Modus Disabled. AC Laden bleibt aktiv.\n\nDer Nullpunkt-Offset verschiebt das Regelziel: +30 W = Regler hält 30 W Netzbezug (Puffer gegen Einspeisung). Negativer Wert = leichte Einspeisung.",
+    text: "Zone 0 (Überschuss, optional): SOC ≥ Export-Schwelle UND PV-Überschuss → Output auf Hard Limit. Entladestrom 2 A. PI-Integral eingefroren.\n\nZone 1 (aggressiv): SOC > Zone-1-Schwelle → hoher Entladestrom, Offset 1. Läuft durch bis SOC ≤ Zone-3-Schwelle — kein Yo-Yo-Effekt. Auch nachts aktiv.\n\nZone 2 (batterieschonend): Zone-3 < SOC ≤ Zone-1 → Entladestrom 0 A. Output-Limit: max(0, PV − Reserve). Optionale Nachtabschaltung.\n\nZone 3 (Sicherheitsstopp): SOC ≤ Zone-3-Schwelle → Output 0 W, Modus Disabled. Hat immer Vorrang.\n\nDer Nullpunkt-Offset verschiebt das Regelziel: +30 W = Regler hält 30 W Netzbezug. Negativer Wert = Regler speist leicht ein.\n\nModuswechsel: Timer-Toggle (3598↔3599) wird immer direkt vor dem Modus-Setzen ausgeführt damit der Solakon ONE den neuen Modus zuverlässig übernimmt.",
   },
   surplus: {
     summary: "Überschuss-Einspeisung (Zone 0) — optional",
-    text: "Wenn PV den Eigenbedarf um mehr als die PV-Hysterese übersteigt UND SOC die Eintrittsschwelle erreicht, wird Output → Hard Limit gesetzt. Das PI-Integral wird in Zone 0 eingefroren.\n\nSOC-Hysterese verhindert Flackern: Austritt erst wenn SOC < (Schwelle − Hysterese). PV-Hysterese verhindert Flackern bei schwankender PV.\n\nBesonderheit: Wenn Hardware-Max-SOC erreicht und MPPT PV auf 0 W drosselt, gilt PV = 0 ebenfalls als Eintritts-Bedingung.",
+    text: "Eintritt: SOC ≥ SOC-Schwelle UND (PV > Output + Grid + PV-Hysterese ODER PV = 0)\nAustritt: SOC < (SOC-Schwelle − SOC-Hysterese) ODER PV ≤ Output + Grid − PV-Hysterese\n\nDer PV = 0-Zweig greift wenn das MPPT die PV bei Hardware-Max-SOC auf 0 W drosselt.\n\nVerhalten: Output → Hard Limit, Entladestrom → 2 A, Integral eingefroren (kein Decay, kein PI-Aufruf).\n\nDeaktiviert: klassische Nulleinspeisung, kein aktives Einspeisen.",
   },
   ac: {
-    summary: "AC Laden bei externem Überschuss — optional",
-    text: "Startet wenn (Grid + Output) < −Hysterese (externer Überschuss erkennbar). Eigener invertierter PI-Regler: Fehler = ac_offset − Grid.\n\nWegen der langen Hardware-Flanke des Wechselrichters (~25 s von min auf max) empfiehlt sich ein kleiner P-Faktor (~0.3–0.5). Der I-Anteil macht die eigentliche Regelarbeit.\n\nSOC-Schutz (Zone 3) bleibt vollständig aktiv. Eintritt möglich aus Zone 1 und Zone 2.",
+    summary: "AC Laden bei externem Überschuss — invertierter PI-Regler",
+    text: "Erkennung: (Grid + Ausgangsleistung) < −Hysterese — nach Abzug des Solakon-Beitrags liegt noch Überschuss an.\n\nEintritt (Fall G): SOC < Ladeziel UND Modus ≠ '3' UND (Grid + Output) < −Hysterese\nDer Modus-Guard (≠ '3') verhindert Re-Eintritt wenn AC Laden bereits läuft.\n\nAbbruch (Fall H): SOC ≥ Ladeziel ODER (Grid ≥ Offset + Hysterese UND Output = 0 W)\nDer Output = 0 W-Guard verhindert Fehlauslösung während der PI noch regelt.\n\nPI-Regelung invertiert: raw_error = Offset − Grid. Positiver Fehler → Ladeleistung erhöhen.\nat_max/at_min-Guards entfallen — Fall I übernimmt die Safety-Funktion.\n\nRückkehr: Zone 1 → Timer-Toggle + Modus '1'. Zone 2 → Output 0 W + Modus '0'. Integral = 0.\n\nSOC-Schutz (Zone 3) bleibt vollständig aktiv.\n\nWegen der Hardware-Flanke des Solakon ONE (~25 s von Min auf Max) P-Faktor klein halten. Der I-Anteil macht die eigentliche Regelarbeit.",
   },
   tariff: {
-    summary: "Tarif-Arbitrage (Tibber, aWATTar …) — optional",
-    text: "Drei Preisstufen:\n• Günstig (< Günstig-Schwelle): AC-Laden mit fester Leistung bis SOC-Ziel\n• Mittel (zwischen den Schwellen): Discharge-Lock in Zone 2 — Entladung gesperrt, Batterie schonen. Zone 1 läuft weiter.\n• Teuer (≥ Teuer-Schwelle): normale SOC-Logik\n\nErfordert externen Preis-Sensor mit numerischem Wert in ct/kWh.",
+    summary: "Tarif-Arbitrage (Tibber, aWATTar …) — drei Preisstufen",
+    text: "Günstig (Preis < Günstig-Schwelle): Tarif-Laden startet — feste Ladeleistung bis SOC-Ziel. Kein PI-Regler.\nMittel (Günstig ≤ Preis < Teuer-Schwelle): Discharge-Lock — Zone 2 Entladung gesperrt (Output 0 W, Modus Disabled). Zone 1 läuft weiter.\nTeuer (Preis ≥ Teuer-Schwelle): normale SOC-Logik, keine Einschränkung.\n\nTarif-Laden und AC-Laden sind voneinander unabhängige Module.\n\nErfordert Preis-Sensor mit numerischem Wert in ct/kWh.",
   },
   dynoff: {
-    summary: "Dynamischer Offset — automatisch aus Netz-Volatilität — optional",
-    text: "Berechnet den Nullpunkt-Offset automatisch aus der Standardabweichung der Netzleistung. Bei ruhigem Netz bleibt der Offset auf dem Minimum. Bei unruhigem Netz (Kompressoren, Waschmaschinen) steigt er automatisch.\n\nFormel: offset = clamp(min + max(0, (StdDev − Rausch) × Faktor), min, max)\n\nJede Zone (Zone 1, Zone 2, Zone AC) ist einzeln aktivierbar und überschreibt den statischen Offset der jeweiligen Zone.",
+    summary: "Dynamischer Offset — automatisch aus Netz-Volatilität berechnet",
+    text: "Berechnet den Nullpunkt-Offset aus der Standardabweichung der Netzleistung über das konfigurierte Zeitfenster.\n\nFormel: offset = clamp(min + max(0, (StdDev − Rausch) × Faktor), min, max)\n\nBeispiel (min=30, noise=15, factor=1.5):\n• StdDev 5 W → 30 W (Minimum)\n• StdDev 30 W → 53 W\n• StdDev 80 W → 128 W\n• StdDev 160 W → 228 W\n• StdDev 250 W+ → 250 W (Maximum)\n\nJede Zone (Zone 1, Zone 2, Zone AC) ist einzeln aktivierbar und überschreibt den statischen Offset der jeweiligen Zone.\n\nDer StdDev-Sensor wird intern berechnet — kein externer Statistik-Sensor erforderlich.",
   },
   night: {
-    summary: "Nachtabschaltung — Zone 2 bei PV-Mangel deaktivieren — optional",
-    text: "Deaktiviert Zone 2 automatisch wenn PV < PV-Ladereserve (aus den Zonen-Einstellungen). Damit wird nachts und bei starker Bewölkung keine Batterie entladen.\n\nZone 1 (aggressive Entladung) und AC Laden laufen auch nachts weiter. Kein separater Schwellwert — die PV-Ladereserve aus dem Zonen-Tab wird direkt verwendet.",
+    summary: "Nachtabschaltung — Zone 2 bei PV < PV-Ladereserve deaktivieren",
+    text: "Betrifft ausschließlich Zone 2 (Fall F): Modus → Disabled, Output 0 W, Integral-Reset.\nZone 1 und AC Laden laufen auch nachts weiter.\n\nSchwelle: PV-Ladereserve aus den Zonen-Einstellungen — kein separater Parameter.\n\nReaktivierung: Sobald PV wieder über die PV-Ladereserve steigt, greift Fall E (Integral-Reset, Timer-Toggle, Modus → '1').",
   },
   debug: {
     summary: "Debug — manuelle Eingriffe in den Regelzustand",
-    text: "Ermöglicht manuelle Eingriffe in den internen Zustand des Reglers zu Diagnosezwecken.\n\nIntegral zurücksetzen: Setzt den I-Anteil des PI-Reglers auf 0. Nützlich nach einem manuellen Eingriff oder bei starkem Integral-Windup.\n\nZone manuell setzen: Schaltet den Entlade-Zyklus (Zone 1 / Zone 2) manuell um. Setzt das Integral zurück. Nützlich wenn der Regler in einem Zwischenzustand feststeckt.",
+    text: "Integral zurücksetzen: Setzt den I-Anteil des PI-Reglers auf 0.\n\nZone manuell setzen: Schaltet den internen cycle_active-Flag und setzt das Integral zurück.\n• Zone 1 aktivieren: cycle_active = true → aggressiver Entladebetrieb, voller Entladestrom.\n• Zone 2 aktivieren: cycle_active = false → batterieschonender Betrieb, 0 A Entladestrom, dynamisches Output-Limit.\n\nAlle Aktionen werden unter 'Letzte Aktion' im Status-Tab protokolliert.",
   },
 };
 
@@ -64,17 +64,17 @@ const TAB_LAYOUT = {
       {
         title: "Regelparameter", icon: "🎛️", color: "#0891b2",
         fields: [
-          { k: "p_factor",  l: "P-Faktor (Proportional)", d: "Reagiert sofort auf Abweichung. Höher = aggressiver. Typisch: 0.8–1.5", t: "num", min: 0.1, max: 5, step: 0.1 },
-          { k: "i_factor",  l: "I-Faktor (Integral)",     d: "Eliminiert dauerhaften Offset. Typisch: 0.03–0.08", t: "num", min: 0, max: 0.5, step: 0.01 },
-          { k: "tolerance", l: "Toleranzbereich (W)",      d: "Totband — keine Korrektur innerhalb dieses Bereichs", t: "num", min: 0, max: 200, step: 1 },
-          { k: "wait_time", l: "Wartezeit / Max-Timeout (s)", d: "Feste Pause (ohne Self-Adjust) oder maximales Timeout als Sicherheitsnetz", t: "num", min: 0, max: 30, step: 1 },
+          { k: "p_factor",  l: "P-Faktor (Proportional)", d: "Reagiert sofort auf die aktuelle Abweichung (Grid − Offset). Höher = aggressiver. Zu groß: Output pendelt dauerhaft. Typisch nach Einstellung: 0.8–1.5", t: "num", min: 0.1, max: 5, step: 0.1 },
+          { k: "i_factor",  l: "I-Faktor (Integral)",     d: "Summiert Abweichungen über die Zeit auf, eliminiert bleibende Regelabweichungen. Anti-Windup auf ±1000 begrenzt. Startwert: 0 — erst erhöhen wenn P-Regelung stabil ist. Typisch: 0.03–0.08", t: "num", min: 0, max: 0.5, step: 0.01 },
+          { k: "tolerance", l: "Toleranzbereich / Totband (W)", d: "Abweichungen innerhalb dieses Bereichs lösen keinen PI-Eingriff aus. Stattdessen greift der Integral-Decay (−5 %/Zyklus wenn |Integral| > 10).", t: "num", min: 0, max: 200, step: 1 },
+          { k: "wait_time", l: "Wartezeit / Max-Timeout (s)", d: "Kompensiert Hardware-Flanke + Sensor-Polling-Latenz nach einem Stelleingriff. Ohne Self-Adjust: feste Pause. Mit Self-Adjust: maximales Timeout als Sicherheitsnetz.", t: "num", min: 0, max: 30, step: 1 },
         ],
       },
       {
         title: "Self-Adjusting Wait", icon: "🎯", color: "#7c3aed",
         fields: [
-          { k: "self_adjust_enabled",   l: "Self-Adjusting Wait aktivieren", d: "Wartet auf tatsächliche WR-Ausgangsleistung statt fester Wartezeit. Wartezeit wird zum Max-Timeout.", t: "bool" },
-          { k: "self_adjust_tolerance", l: "Zielwert-Toleranz (W)",          d: "Abweichung, ab der der Zielwert als erreicht gilt", t: "num", min: 1, max: 50, step: 1 },
+          { k: "self_adjust_enabled",   l: "Self-Adjusting Wait aktivieren", d: "Wartet nach jedem Stelleingriff auf die tatsächliche WR-Ausgangsleistung. Sobald actual_power den Sollwert ±Toleranz erreicht, geht der Regler weiter. Die Wartezeit wirkt als maximales Timeout.", t: "bool" },
+          { k: "self_adjust_tolerance", l: "Zielwert-Toleranz (W)",          d: "Abweichung zwischen actual_power und Sollwert in Watt, ab der der Zielwert als erreicht gilt und die Wartezeit endet. Typisch: 2–5 W.", t: "num", min: 1, max: 50, step: 1 },
         ],
       },
     ],
@@ -85,23 +85,23 @@ const TAB_LAYOUT = {
       {
         title: "SOC-Grenzen", icon: "🔋", color: "#0891b2",
         fields: [
-          { k: "zone1_limit", l: "Zone 1 SOC-Schwelle (%)", d: "SOC über diesem Wert → Zone 1 (aggressiv)", t: "num", min: 1, max: 99, step: 1 },
-          { k: "zone3_limit", l: "Zone 3 SOC-Schwelle (%)", d: "SOC unter diesem Wert → Zone 3 (Stopp)", t: "num", min: 1, max: 49, step: 1 },
-          { k: "pv_reserve",  l: "PV-Ladereserve (W)",      d: "Watt die für Batterie-Laden reserviert bleiben (Zone-2-Limit + Nachtschwelle)", t: "num", min: 0, max: 500, step: 10 },
+          { k: "zone1_limit", l: "Zone 1 SOC-Schwelle (%)", d: "SOC überschreitet diesen Wert → Zone 1 startet. Zone 1 läuft durch bis SOC ≤ Zone-3-Schwelle — kein Yo-Yo-Effekt. Auch nachts aktiv.", t: "num", min: 1, max: 99, step: 1 },
+          { k: "zone3_limit", l: "Zone 3 SOC-Schwelle (%)", d: "SOC unterschreitet diesen Wert → Zone 3 (Sicherheitsstopp): Output 0 W, Modus Disabled. Muss kleiner als Zone-1-Schwelle sein. AC Laden bleibt trotz Zone 3 möglich.", t: "num", min: 1, max: 49, step: 1 },
+          { k: "pv_reserve",  l: "PV-Ladereserve (W)",      d: "Zone-2-Output-Limit: max(0, PV − Reserve). Gleichzeitig Schwelle für Nachtabschaltung: Zone 2 deaktiviert wenn PV < Reserve.", t: "num", min: 0, max: 500, step: 10 },
         ],
       },
       {
         title: "Leistungsgrenzen", icon: "⚙️", color: "#b45309",
         fields: [
-          { k: "hard_limit",    l: "Hard Limit (W)",               d: "Absolute Obergrenze der Ausgangsleistung in Zone 0 und Zone 1", t: "num", min: 100, max: 2000, step: 50 },
-          { k: "discharge_max", l: "Max. Entladestrom Zone 1 (A)", d: "In Zone 2 automatisch 0 A, in Zone 0 (Surplus) 2 A", t: "num", min: 0, max: 100, step: 1 },
+          { k: "hard_limit",    l: "Hard Limit (W)",               d: "Absolute Ausgangsleistungs-Obergrenze in Zone 0 und Zone 1. Der at_max_limit-Guard greift nur an dieser Grenze, nicht am dynamischen Zone-2-Limit.", t: "num", min: 100, max: 2000, step: 50 },
+          { k: "discharge_max", l: "Max. Entladestrom Zone 1 (A)", d: "Entladestrom in Zone 1. Zone 2 und AC Laden setzen automatisch 0 A. Zone 0 (Surplus) setzt 2 A. Stromänderungen werden nur geschrieben wenn Abweichung > 0.5 A.", t: "num", min: 0, max: 100, step: 1 },
         ],
       },
       {
         title: "Regelziel-Offsets", icon: "🎯", color: "#16a34a",
         fields: [
-          { k: "offset_1", l: "Zone 1 Offset (W)", d: "Statischer Zielwert in Zone 1. Bei aktivem Dyn. Offset überschrieben", t: "num", min: -200, max: 500, step: 1 },
-          { k: "offset_2", l: "Zone 2 Offset (W)", d: "Statischer Zielwert in Zone 2 (batterieschonend)", t: "num", min: -200, max: 500, step: 1 },
+          { k: "offset_1", l: "Zone 1 Offset (W)", d: "Statischer Zielwert für die Netzleistung in Zone 1. Positiv = Regler hält Grid auf diesem Bezugswert. Negativ = Regler speist leicht ein. Wird überschrieben wenn Dyn. Offset für Zone 1 aktiv ist.", t: "num", min: -200, max: 500, step: 1 },
+          { k: "offset_2", l: "Zone 2 Offset (W)", d: "Statischer Zielwert für die Netzleistung in Zone 2. Wird überschrieben wenn Dyn. Offset für Zone 2 aktiv ist.", t: "num", min: -200, max: 500, step: 1 },
         ],
       },
     ],
@@ -109,21 +109,21 @@ const TAB_LAYOUT = {
 
   surplus: {
     top: [
-      { k: "surplus_enabled", l: "Überschuss-Einspeisung aktivieren", d: "Aktives Einspeisen bei vollem Akku (Zone 0)", t: "bool" },
+      { k: "surplus_enabled", l: "Überschuss-Einspeisung aktivieren", d: "Eintritt: SOC ≥ Schwelle UND (PV > Output + Grid + PV-Hysterese ODER PV = 0). Austritt: SOC < (Schwelle − SOC-Hysterese) ODER PV ≤ Output + Grid − PV-Hysterese.", t: "bool" },
     ],
     enabledKey: "surplus_enabled",
     cols: [
       {
         title: "SOC-Bedingung", icon: "🔋", color: "#0891b2",
         fields: [
-          { k: "surplus_soc_threshold", l: "SOC-Schwelle (%)",  d: "Ab diesem SOC wird Überschuss eingespeist", t: "num", min: 80, max: 100, step: 1 },
-          { k: "surplus_soc_hyst",      l: "SOC-Hysterese (%)", d: "Austritt erst bei SOC < (Schwelle − Hysterese)", t: "num", min: 1, max: 20, step: 1 },
+          { k: "surplus_soc_threshold", l: "SOC-Schwelle (%)",  d: "Eintritts-SOC-Schwelle. Muss kleiner als der in der Solakon-App eingestellte Max-SOC sein, sonst drosselt das MPPT PV auf 0 W bevor diese Schwelle erreicht wird.", t: "num", min: 80, max: 100, step: 1 },
+          { k: "surplus_soc_hyst",      l: "SOC-Hysterese (%)", d: "Zone 0 wird erst verlassen wenn SOC < (Schwelle − Hysterese). Bei Schwelle = 90 % und Hysterese = 5 % → Austritt erst bei SOC < 85 %.", t: "num", min: 1, max: 20, step: 1 },
         ],
       },
       {
         title: "PV-Bedingung", icon: "☀️", color: "#f59e0b",
         fields: [
-          { k: "surplus_pv_hyst", l: "PV-Hysterese (W)", d: "Eintritt: PV > Verbrauch + Hysterese. Austritt: PV ≤ Verbrauch − Hysterese. Verhindert Flackern.", t: "num", min: 10, max: 200, step: 10 },
+          { k: "surplus_pv_hyst", l: "PV-Hysterese (W)", d: "Totband um den Hausverbrauch (Output + Grid). Eintritt: PV > Output + Grid + Hysterese. Austritt: PV ≤ Output + Grid − Hysterese.", t: "num", min: 10, max: 200, step: 10 },
         ],
       },
     ],
@@ -131,24 +131,24 @@ const TAB_LAYOUT = {
 
   ac: {
     top: [
-      { k: "ac_enabled", l: "AC Laden aktivieren", d: "Laden bei erkanntem externem Überschuss (Grid + Output < −Hysterese)", t: "bool" },
+      { k: "ac_enabled", l: "AC Laden aktivieren", d: "Eintritt (Fall G): SOC < Ladeziel UND Modus ≠ '3' UND (Grid + Output) < −Hysterese. Abbruch (Fall H): SOC ≥ Ladeziel ODER (Grid ≥ Offset + Hysterese UND Output = 0 W). SOC-Schutz (Zone 3) bleibt vollständig aktiv.", t: "bool" },
     ],
     enabledKey: "ac_enabled",
     cols: [
       {
         title: "Eintritt & Grenzen", icon: "⚡", color: "#7c3aed",
         fields: [
-          { k: "ac_soc_target",  l: "Ladeziel SOC (%)",        d: "Laden stoppt bei diesem SOC. Empfohlen: ≤ Zone-1-Schwelle", t: "num", min: 50, max: 100, step: 1 },
-          { k: "ac_power_limit", l: "Max. Ladeleistung (W)",   d: "Obergrenze der AC-Ladeleistung", t: "num", min: 100, max: 2000, step: 50 },
-          { k: "ac_hysteresis",  l: "Eintritts-Hysterese (W)", d: "(Grid + Output) muss unter −Hysterese liegen", t: "num", min: 10, max: 500, step: 10 },
-          { k: "ac_offset",      l: "Regel-Offset (W)",        d: "Zielwert für PI während AC Laden (typisch negativ). Bei Dyn. Offset überschrieben", t: "num", min: -500, max: 200, step: 5 },
+          { k: "ac_soc_target",  l: "Ladeziel SOC (%)",        d: "Laden stoppt wenn SOC diesen Wert erreicht. Empfohlen: ≤ Zone-1-Schwelle — so übernimmt Zone 1 nahtlos nach dem Laden.", t: "num", min: 50, max: 100, step: 1 },
+          { k: "ac_power_limit", l: "Max. Ladeleistung (W)",   d: "Absolute Obergrenze der AC-Ladeleistung. Wird als max_power an den PI-Regler übergeben.", t: "num", min: 100, max: 2000, step: 50 },
+          { k: "ac_hysteresis",  l: "Eintritts-Hysterese (W)", d: "Eintritt: (Grid + Output) < −Hysterese. Austritt: Grid ≥ (Offset + Hysterese) UND Output = 0 W. Der Output = 0 W-Guard verhindert Fehlauslösung während der PI noch regelt.", t: "num", min: 10, max: 500, step: 10 },
+          { k: "ac_offset",      l: "Regel-Offset (W)",        d: "Regelziel für die Netzleistung im AC-Lade-Modus. Negativ = Einspeisung angestrebt → PI erhöht Ladeleistung. Wird überschrieben wenn Dyn. Offset für Zone AC aktiv ist.", t: "num", min: -500, max: 200, step: 5 },
         ],
       },
       {
         title: "PI-Parameter", icon: "🎛️", color: "#0891b2",
         fields: [
-          { k: "ac_p_factor", l: "AC P-Faktor", d: "Klein halten (~0.3–0.5) wegen langer Hardware-Flanke (~25 s)", t: "num", min: 0.1, max: 3, step: 0.1 },
-          { k: "ac_i_factor", l: "AC I-Faktor", d: "I macht bei AC Laden die eigentliche Regelarbeit", t: "num", min: 0, max: 0.5, step: 0.01 },
+          { k: "ac_p_factor", l: "AC P-Faktor", d: "Proportional-Verstärkung im AC-Lade-Modus. Wegen der Hardware-Flanke des Solakon ONE (~25 s von Min auf Max) klein halten (~0.3–0.5). Startwert: 0.3.", t: "num", min: 0.1, max: 3, step: 0.1 },
+          { k: "ac_i_factor", l: "AC I-Faktor", d: "Integral-Verstärkung im AC-Lade-Modus. Startwert: 0 — erst erhöhen wenn P allein eine bleibende Regelabweichung hinterlässt. Typisch: 0.05–0.1.", t: "num", min: 0, max: 0.5, step: 0.01 },
         ],
       },
     ],
@@ -156,23 +156,23 @@ const TAB_LAYOUT = {
 
   tariff: {
     top: [
-      { k: "tariff_enabled",      l: "Tarif-Steuerung aktivieren", d: "Laden bei günstigem Stromtarif, Discharge-Lock bei mittlerem", t: "bool" },
-      { k: "tariff_price_sensor", l: "Preis-Sensor",               d: "Sensor-Entität mit aktuellem Strompreis in ct/kWh", t: "entity", domain: "sensor" },
+      { k: "tariff_enabled",      l: "Tarif-Steuerung aktivieren", d: "Günstig (< Günstig-Schwelle): Tarif-Laden. Mittel (dazwischen): Discharge-Lock Zone 2, Zone 1 läuft weiter. Teuer (≥ Teuer-Schwelle): normale SOC-Logik. Unabhängig vom AC-Laden-Modul.", t: "bool" },
+      { k: "tariff_price_sensor", l: "Preis-Sensor",               d: "Sensor-Entität mit aktuellem Strompreis als numerischem Wert in ct/kWh.", t: "entity", domain: "sensor" },
     ],
     enabledKey: "tariff_enabled",
     cols: [
       {
         title: "Preisschwellen", icon: "💹", color: "#0891b2",
         fields: [
-          { k: "tariff_cheap_threshold", l: "Günstig-Schwelle (ct/kWh)", d: "Unter diesem Preis → Tarif-Laden", t: "num", min: 0, max: 100, step: 0.5 },
-          { k: "tariff_exp_threshold",   l: "Teuer-Schwelle (ct/kWh)",   d: "Über diesem Preis → normale SOC-Logik. Dazwischen → Discharge-Lock (Zone 2)", t: "num", min: 0, max: 100, step: 0.5 },
+          { k: "tariff_cheap_threshold", l: "Günstig-Schwelle (ct/kWh)", d: "Tarif-Laden startet wenn Preis diese Schwelle unterschreitet UND SOC < Ladeziel. Auch untere Grenze des Discharge-Locks.", t: "num", min: 0, max: 100, step: 0.5 },
+          { k: "tariff_exp_threshold",   l: "Teuer-Schwelle (ct/kWh)",   d: "Über dieser Schwelle: normale SOC-Logik. Dazwischen (Günstig ≤ Preis < Teuer): Discharge-Lock Zone 2, Zone 1 läuft weiter. Muss größer als Günstig-Schwelle sein.", t: "num", min: 0, max: 100, step: 0.5 },
         ],
       },
       {
         title: "Laden", icon: "🔋", color: "#16a34a",
         fields: [
-          { k: "tariff_soc_target", l: "Ladeziel SOC (%)", d: "Tarif-Laden stoppt bei diesem SOC", t: "num", min: 50, max: 100, step: 1 },
-          { k: "tariff_power",      l: "Ladeleistung (W)", d: "Feste Leistung während Tarif-Laden", t: "num", min: 100, max: 2000, step: 50 },
+          { k: "tariff_soc_target", l: "Ladeziel SOC (%)", d: "Tarif-Laden stoppt wenn dieser SOC erreicht wird. Unabhängig vom SOC-Ladeziel des AC-Lade-Moduls.", t: "num", min: 50, max: 100, step: 1 },
+          { k: "tariff_power",      l: "Ladeleistung (W)", d: "Feste Ladeleistung während Tarif-Laden — kein PI-Regler, keine dynamische Anpassung.", t: "num", min: 100, max: 2000, step: 50 },
         ],
       },
     ],
@@ -180,40 +180,40 @@ const TAB_LAYOUT = {
 
   dynoff: {
     top: [
-      { k: "stddev_window", l: "Stabw.-Fenster (s)", d: "Zeitfenster für die Standardabweichungs-Berechnung (30–300 s). Gilt für alle Zonen.", t: "num", min: 30, max: 300, step: 10 },
+      { k: "stddev_window", l: "Stabw.-Fenster (s)", d: "Zeitfenster für die Standardabweichungs-Berechnung. Gilt für alle Zonen.", t: "num", min: 30, max: 300, step: 10 },
     ],
     cols: [
       {
         title: "Zone 1", icon: "⚡", color: "#16a34a",
         fields: [
-          { k: "dyn_z1_enabled", l: "Aktivieren",          d: "Dynamischen Offset für Zone 1 verwenden. Überschreibt den statischen Zone-1-Offset.", t: "bool" },
-          { k: "dyn_z1_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz", t: "num", min: 0, max: 500, step: 1 },
-          { k: "dyn_z1_max",     l: "Max. Offset (W)",     d: "Obergrenze bei unruhigem Netz", t: "num", min: 50, max: 1000, step: 10 },
-          { k: "dyn_z1_noise",   l: "Rausch-Schwelle (W)", d: "StdDev darunter = Messrauschen, kein Anstieg", t: "num", min: 0, max: 100, step: 1 },
-          { k: "dyn_z1_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb Rausch-Schwelle", t: "num", min: 0.5, max: 5, step: 0.1 },
-          { k: "dyn_z1_negative",l: "Negativer Offset",    d: "Offset negieren (Regelziel < 0 W)", t: "bool" },
+          { k: "dyn_z1_enabled", l: "Aktivieren",          d: "Berechnet den Offset dynamisch aus der Netz-StdDev statt des statischen Werts. Überschreibt den statischen Zone-1-Offset.", t: "bool" },
+          { k: "dyn_z1_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz (StdDev ≤ Rausch-Schwelle). Offset sinkt nie unter diesen Wert.", t: "num", min: 0, max: 500, step: 1 },
+          { k: "dyn_z1_max",     l: "Max. Offset (W)",     d: "Obergrenze des Offsets. Offset steigt nie über diesen Wert, auch bei sehr hoher StdDev.", t: "num", min: 50, max: 1000, step: 10 },
+          { k: "dyn_z1_noise",   l: "Rausch-Schwelle (W)", d: "StdDev unterhalb dieser Schwelle wird als Messrauschen gewertet und löst keinen Offset-Anstieg aus.", t: "num", min: 0, max: 100, step: 1 },
+          { k: "dyn_z1_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb der Rausch-Schwelle. Formel: buffer = (StdDev − Rausch) × Faktor.", t: "num", min: 0.5, max: 5, step: 0.1 },
+          { k: "dyn_z1_negative",l: "Negativer Offset",    d: "Negiert den berechneten Offset (× −1). Das Regelziel liegt dann unterhalb von 0 W.", t: "bool" },
         ],
       },
       {
         title: "Zone 2", icon: "🔋", color: "#0891b2",
         fields: [
-          { k: "dyn_z2_enabled", l: "Aktivieren",          d: "Dynamischen Offset für Zone 2 verwenden. Überschreibt den statischen Zone-2-Offset.", t: "bool" },
-          { k: "dyn_z2_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz", t: "num", min: 0, max: 500, step: 1 },
-          { k: "dyn_z2_max",     l: "Max. Offset (W)",     d: "Obergrenze bei unruhigem Netz", t: "num", min: 50, max: 1000, step: 10 },
-          { k: "dyn_z2_noise",   l: "Rausch-Schwelle (W)", d: "StdDev darunter = Messrauschen, kein Anstieg", t: "num", min: 0, max: 100, step: 1 },
-          { k: "dyn_z2_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb Rausch-Schwelle", t: "num", min: 0.5, max: 5, step: 0.1 },
-          { k: "dyn_z2_negative",l: "Negativer Offset",    d: "Offset negieren (Regelziel < 0 W)", t: "bool" },
+          { k: "dyn_z2_enabled", l: "Aktivieren",          d: "Berechnet den Offset dynamisch aus der Netz-StdDev statt des statischen Werts. Überschreibt den statischen Zone-2-Offset.", t: "bool" },
+          { k: "dyn_z2_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz (StdDev ≤ Rausch-Schwelle). Offset sinkt nie unter diesen Wert.", t: "num", min: 0, max: 500, step: 1 },
+          { k: "dyn_z2_max",     l: "Max. Offset (W)",     d: "Obergrenze des Offsets. Offset steigt nie über diesen Wert, auch bei sehr hoher StdDev.", t: "num", min: 50, max: 1000, step: 10 },
+          { k: "dyn_z2_noise",   l: "Rausch-Schwelle (W)", d: "StdDev unterhalb dieser Schwelle wird als Messrauschen gewertet und löst keinen Offset-Anstieg aus.", t: "num", min: 0, max: 100, step: 1 },
+          { k: "dyn_z2_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb der Rausch-Schwelle. Formel: buffer = (StdDev − Rausch) × Faktor.", t: "num", min: 0.5, max: 5, step: 0.1 },
+          { k: "dyn_z2_negative",l: "Negativer Offset",    d: "Negiert den berechneten Offset (× −1). Das Regelziel liegt dann unterhalb von 0 W.", t: "bool" },
         ],
       },
       {
         title: "Zone AC", icon: "🔌", color: "#7c3aed",
         fields: [
-          { k: "dyn_ac_enabled", l: "Aktivieren",          d: "Dynamischen Offset für AC Laden verwenden. Überschreibt den statischen AC-Offset.", t: "bool" },
-          { k: "dyn_ac_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz", t: "num", min: 0, max: 500, step: 1 },
-          { k: "dyn_ac_max",     l: "Max. Offset (W)",     d: "Obergrenze bei unruhigem Netz", t: "num", min: 50, max: 1000, step: 10 },
-          { k: "dyn_ac_noise",   l: "Rausch-Schwelle (W)", d: "StdDev darunter = Messrauschen, kein Anstieg", t: "num", min: 0, max: 100, step: 1 },
-          { k: "dyn_ac_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb Rausch-Schwelle", t: "num", min: 0.5, max: 5, step: 0.1 },
-          { k: "dyn_ac_negative",l: "Negativer Offset",    d: "Offset negieren (Regelziel < 0 W)", t: "bool" },
+          { k: "dyn_ac_enabled", l: "Aktivieren",          d: "Berechnet den Offset dynamisch aus der Netz-StdDev statt des statischen Werts. Überschreibt den statischen AC-Offset.", t: "bool" },
+          { k: "dyn_ac_min",     l: "Min. Offset (W)",     d: "Grundpuffer bei ruhigem Netz (StdDev ≤ Rausch-Schwelle). Offset sinkt nie unter diesen Wert.", t: "num", min: 0, max: 500, step: 1 },
+          { k: "dyn_ac_max",     l: "Max. Offset (W)",     d: "Obergrenze des Offsets. Offset steigt nie über diesen Wert, auch bei sehr hoher StdDev.", t: "num", min: 50, max: 1000, step: 10 },
+          { k: "dyn_ac_noise",   l: "Rausch-Schwelle (W)", d: "StdDev unterhalb dieser Schwelle wird als Messrauschen gewertet und löst keinen Offset-Anstieg aus.", t: "num", min: 0, max: 100, step: 1 },
+          { k: "dyn_ac_factor",  l: "Volatilitäts-Faktor", d: "Verstärkung oberhalb der Rausch-Schwelle. Formel: buffer = (StdDev − Rausch) × Faktor.", t: "num", min: 0.5, max: 5, step: 0.1 },
+          { k: "dyn_ac_negative",l: "Negativer Offset",    d: "Negiert den berechneten Offset (× −1). Das Regelziel liegt dann unterhalb von 0 W.", t: "bool" },
         ],
       },
     ],
