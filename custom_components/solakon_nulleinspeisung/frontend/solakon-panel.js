@@ -20,6 +20,7 @@ const TABS = [
   { id: "tariff",  label: "Tarif",       icon: "💹" },
   { id: "dynoff",  label: "Dyn. Offset", icon: "📈" },
   { id: "night",   label: "Nacht",       icon: "🌙" },
+  { id: "debug",   label: "Debug",       icon: "🔧" },
 ];
 
 const TAB_DOCS = {
@@ -50,6 +51,10 @@ const TAB_DOCS = {
   night: {
     summary: "Nachtabschaltung — Zone 2 bei PV-Mangel deaktivieren — optional",
     text: "Deaktiviert Zone 2 automatisch wenn PV < PV-Ladereserve (aus den Zonen-Einstellungen). Damit wird nachts und bei starker Bewölkung keine Batterie entladen.\n\nZone 1 (aggressive Entladung) und AC Laden laufen auch nachts weiter. Kein separater Schwellwert — die PV-Ladereserve aus dem Zonen-Tab wird direkt verwendet.",
+  },
+  debug: {
+    summary: "Debug — manuelle Eingriffe in den Regelzustand",
+    text: "Ermöglicht manuelle Eingriffe in den internen Zustand des Reglers zu Diagnosezwecken.\n\nIntegral zurücksetzen: Setzt den I-Anteil des PI-Reglers auf 0. Nützlich nach einem manuellen Eingriff oder bei starkem Integral-Windup.\n\nZone manuell setzen: Schaltet den Entlade-Zyklus (Zone 1 / Zone 2) manuell um. Setzt das Integral zurück. Nützlich wenn der Regler in einem Zwischenzustand feststeckt.",
   },
 };
 
@@ -262,8 +267,12 @@ class SolakonPanel extends HTMLElement {
     try {
       this._status = await this._ws("get_status");
       if (this._activeTab === "status") this._updateStatusView();
+      if (this._activeTab === "debug") {
+        const el = this.shadowRoot.getElementById("dbg-zone-state");
+        if (el) el.textContent = this._status.cycle_active ? "Zone 1 (Zyklus aktiv)" : "Zone 2";
+      }
       this._updateRegBanner();
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore polling errors */ }
   }
 
   async _saveSettings() {
@@ -288,155 +297,213 @@ class SolakonPanel extends HTMLElement {
   }
 
   async _resetIntegral() {
-    try { await this._ws("reset_integral"); this._showToast("🔄 Integral zurückgesetzt"); }
-    catch (e) { this._showToast("❌ " + e.message, true); }
+    try {
+      await this._ws("reset_integral");
+      this._showToast("🔄 Integral zurückgesetzt");
+    } catch (e) { this._showToast("❌ " + e.message, true); }
+  }
+
+  async _toggleCycle(activate) {
+    try {
+      await this._ws("set_cycle", { active: activate });
+      this._showToast(activate ? "⚡ Zone 1 aktiviert" : "🔋 Zone 2 aktiviert");
+      this._status = await this._ws("get_status");
+      const el = this.shadowRoot.getElementById("dbg-zone-state");
+      if (el) el.textContent = this._status.cycle_active ? "Zone 1 (Zyklus aktiv)" : "Zone 2";
+    } catch (e) { this._showToast("❌ " + e.message, true); }
   }
 
   _build() {
     this.shadowRoot.innerHTML = `
       <style>
-        :host { 
-          display:block; 
-          font-family:var(--paper-font-body1_-_font-family,Roboto,sans-serif); 
-          color:var(--primary-text-color,#333); 
-          height: 100vh;
-          overflow-y: auto;
+        /* ── Host & Wrapper ──────────────────────────────────────────────── */
+        :host {
+          display: block;
+          font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+          color: var(--primary-text-color, #333);
           background-color: var(--primary-background-color, #fafafa);
         }
-        .app-header {
-          background-color: var(--app-header-background-color, var(--primary-color, #03a9f4));
-          color: var(--app-header-text-color, #ffffff);
-          height: var(--header-height, 56px);
+        .wrap { max-width: 940px; margin: 0 auto; padding: 16px; }
+
+        /* ── Top card (Titel + Regelschalter + Info) ─────────────────────── */
+        .top-card {
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 10px;
+          overflow: hidden;
+          margin-bottom: 14px;
+        }
+        .top-card-hdr {
+          background: var(--primary-color, #03a9f4);
+          color: #fff;
+          padding: 12px 16px;
+          font-size: 1.1em;
+          font-weight: 600;
           display: flex;
           align-items: center;
-          padding: 0 16px;
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          z-index: 100;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          gap: 8px;
         }
-        .header-title {
-          font-size: 20px;
-          font-weight: 400;
+        .top-card-body {
+          padding: 12px 16px;
+          background: var(--card-background-color, #fff);
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
         }
-        .menu-button {
-          margin-right: 24px;
+
+        /* ── Regulation bar ──────────────────────────────────────────────── */
+        .reg-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; }
+        .reg-bar.on  { background: #16a34a22; border: 1px solid #16a34a; }
+        .reg-bar.off { background: #dc262622; border: 1px solid #dc2626; }
+        .reg-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .reg-bar.on  .reg-dot { background: #16a34a; }
+        .reg-bar.off .reg-dot { background: #dc2626; }
+
+        /* ── Global info accordion ───────────────────────────────────────── */
+        .global-info { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; overflow: hidden; }
+        .global-info summary { padding: 9px 14px; cursor: pointer; font-weight: 600; font-size: .88em; background: var(--secondary-background-color, #f5f5f5); color: var(--primary-color, #03a9f4); list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+        .global-info summary::-webkit-details-marker { display: none; }
+        .global-info summary::before { content: "▶"; font-size: .7em; transition: transform .2s; }
+        .global-info[open] summary::before { transform: rotate(90deg); }
+        .global-info .global-body { padding: 12px 14px; font-size: .83em; line-height: 1.7; color: var(--secondary-text-color, #555); border-top: 1px solid var(--divider-color, #ddd); display: flex; flex-direction: column; gap: 8px; }
+        .global-info .global-body strong { color: var(--primary-text-color, #333); }
+
+        /* ── Tab panel (Tabs + Inhalt als ein Element) ───────────────────── */
+        .tab-panel {
+          border: 1px solid var(--divider-color, #ddd);
+          border-radius: 10px;
+          overflow: hidden;
+          margin-bottom: 14px;
+        }
+        .tab-bar {
+          background: var(--secondary-background-color, #f0f0f0);
+          border-bottom: 2px solid var(--divider-color, #ddd);
+          display: flex;
+          flex-wrap: wrap;
+          padding: 8px 8px 0;
+          gap: 2px;
+        }
+        .tab {
+          padding: 7px 11px;
+          border-radius: 8px 8px 0 0;
           cursor: pointer;
-          font-size: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          transition: background-color 0.2s;
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #ddd);
+          border-bottom: 2px solid var(--card-background-color, #fff);
+          font-size: .82em;
+          white-space: nowrap;
+          position: relative;
+          bottom: -2px;
+          transition: background .15s;
         }
-        .menu-button:hover {
-          background-color: rgba(255, 255, 255, 0.1);
+        .tab:hover:not(.active) { background: var(--secondary-background-color, #f5f5f5); }
+        .tab.active {
+          background: var(--primary-color, #03a9f4);
+          color: #fff;
+          border-color: var(--primary-color, #03a9f4);
+          border-bottom-color: var(--primary-color, #03a9f4);
+          font-weight: 600;
         }
-        .wrap { 
-          max-width:940px; 
-          margin:0 auto; 
-          padding:16px; 
-          margin-top: var(--header-height, 56px); /* Platz für den Header */
-        }
-        h1 { margin:0 0 8px; font-size:1.5em; }
-        .reg-bar { display:flex; align-items:center; gap:12px; padding:10px 16px; border-radius:10px; margin-bottom:12px; cursor:pointer; user-select:none; }
-        .reg-bar.on  { background:#16a34a22; border:1px solid #16a34a; }
-        .reg-bar.off { background:#dc262622; border:1px solid #dc2626; }
-        .reg-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
-        .reg-bar.on  .reg-dot { background:#16a34a; }
-        .reg-bar.off .reg-dot { background:#dc2626; }
+        .tab-content { background: var(--card-background-color, #fff); padding: 16px; min-height: 200px; }
 
-        .global-info { border:1px solid var(--divider-color,#ddd); border-radius:10px; overflow:hidden; margin-bottom:12px; }
-        .global-info summary { padding:9px 14px; cursor:pointer; font-weight:600; font-size:.88em; background:var(--secondary-background-color,#f5f5f5); color:var(--primary-color,#03a9f4); list-style:none; display:flex; align-items:center; gap:8px; user-select:none; }
-        .global-info summary::-webkit-details-marker { display:none; }
-        .global-info summary::before { content:"▶"; font-size:.7em; transition:transform .2s; }
-        .global-info[open] summary::before { transform:rotate(90deg); }
-        .global-info .global-body { padding:12px 14px; font-size:.83em; line-height:1.7; color:var(--secondary-text-color,#555); border-top:1px solid var(--divider-color,#ddd); display:flex; flex-direction:column; gap:8px; }
-        .global-info .global-body strong { color:var(--primary-text-color,#333); }
+        /* ── Info accordion (inside tab) ─────────────────────────────────── */
+        .info-details { margin-bottom: 14px; border: 1px solid var(--divider-color, #ddd); border-radius: 8px; overflow: hidden; }
+        .info-details summary { padding: 9px 14px; cursor: pointer; font-weight: 600; font-size: .88em; background: var(--secondary-background-color, #f5f5f5); color: var(--primary-color, #03a9f4); list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; }
+        .info-details summary::-webkit-details-marker { display: none; }
+        .info-details summary::before { content: "▶"; font-size: .7em; transition: transform .2s; }
+        .info-details[open] summary::before { transform: rotate(90deg); }
+        .info-details .info-body { padding: 11px 14px; font-size: .83em; line-height: 1.65; color: var(--secondary-text-color, #555); white-space: pre-wrap; border-top: 1px solid var(--divider-color, #ddd); }
 
-        .tabs { display:flex; gap:2px; flex-wrap:wrap; margin-bottom:12px; }
-        .tab { padding:7px 12px; border-radius:8px 8px 0 0; cursor:pointer; background:var(--card-background-color,#f5f5f5); border:1px solid var(--divider-color,#ddd); border-bottom:none; font-size:.85em; white-space:nowrap; }
-        .tab.active { background:var(--primary-color,#03a9f4); color:#fff; }
-        .content { background:var(--card-background-color,#fff); border:1px solid var(--divider-color,#ddd); border-radius:0 8px 8px 8px; padding:16px; min-height:200px; }
+        /* ── Column grid layout ──────────────────────────────────────────── */
+        .col-grid { display: grid; gap: 12px; }
+        .col-grid.cols-1 { grid-template-columns: 1fr; }
+        .col-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+        .col-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 680px) { .col-grid.cols-2, .col-grid.cols-3 { grid-template-columns: 1fr; } }
+        .col-grid.disabled { opacity: 0.4; pointer-events: none; }
+        .col-card { border: 1px solid var(--divider-color, #ddd); border-radius: 10px; overflow: hidden; }
+        .col-card.top-item { margin-bottom: 12px; }
+        .col-header { padding: 8px 12px; font-weight: 600; font-size: .85em; color: #fff; display: flex; align-items: center; gap: 6px; }
+        .col-body { padding: 12px; }
 
-        .info-details { margin-bottom:14px; border:1px solid var(--divider-color,#ddd); border-radius:8px; overflow:hidden; }
-        .info-details summary { padding:9px 14px; cursor:pointer; font-weight:600; font-size:.88em; background:var(--secondary-background-color,#f5f5f5); color:var(--primary-color,#03a9f4); list-style:none; display:flex; align-items:center; gap:8px; user-select:none; }
-        .info-details summary::-webkit-details-marker { display:none; }
-        .info-details summary::before { content:"▶"; font-size:.7em; transition:transform .2s; }
-        .info-details[open] summary::before { transform:rotate(90deg); }
-        .info-details .info-body { padding:11px 14px; font-size:.83em; line-height:1.65; color:var(--secondary-text-color,#555); white-space:pre-wrap; border-top:1px solid var(--divider-color,#ddd); }
+        /* ── Form fields ─────────────────────────────────────────────────── */
+        .field { margin-bottom: 12px; }
+        .field:last-child { margin-bottom: 0; }
+        .field label { display: block; font-weight: 500; margin-bottom: 2px; font-size: .9em; }
+        .field .desc { font-size: .79em; color: var(--secondary-text-color, #888); margin-bottom: 4px; line-height: 1.4; }
+        .field input[type=number], .field input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid var(--divider-color, #ccc); border-radius: 6px; font-size: .92em; box-sizing: border-box; background: var(--card-background-color, #fff); color: var(--primary-text-color, #333); }
+        .field .toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+        .field .toggle input { width: 17px; height: 17px; }
 
-        .top-fields { margin-bottom:12px; }
-        .top-fields .field { margin-bottom:10px; }
+        /* ── Status grid ─────────────────────────────────────────────────── */
+        .stat-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 0; }
+        @media (max-width: 680px) { .stat-col-grid { grid-template-columns: 1fr; } }
+        .stat-col-card { border: 1px solid var(--divider-color, #ddd); border-radius: 10px; overflow: hidden; }
+        .stat-col-header { padding: 8px 12px; font-weight: 600; font-size: .85em; color: #fff; display: flex; align-items: center; gap: 6px; }
+        .stat-col-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stat { padding: 7px 10px; border-radius: 6px; background: var(--secondary-background-color, #f0f0f0); }
+        .stat .val { font-size: 1.15em; font-weight: 600; }
+        .stat .lbl { font-size: .76em; color: var(--secondary-text-color, #888); margin-top: 2px; }
+        .stat-full { padding: 7px 10px; border-radius: 6px; background: var(--secondary-background-color, #f0f0f0); }
+        .stat-full .val { font-size: 1.15em; font-weight: 600; }
+        .stat-full .lbl { font-size: .76em; color: var(--secondary-text-color, #888); margin-top: 2px; }
+        .stat-full .lbl-src { font-size: .76em; color: var(--secondary-text-color, #888); margin-top: 1px; font-style: italic; }
 
-        .col-grid { display:grid; gap:12px; }
-        .col-grid.cols-1 { grid-template-columns:1fr; }
-        .col-grid.cols-2 { grid-template-columns:repeat(2,1fr); }
-        .col-grid.cols-3 { grid-template-columns:repeat(3,1fr); }
-        @media (max-width:680px) { .col-grid.cols-2,.col-grid.cols-3 { grid-template-columns:1fr; } }
-        .col-grid.disabled { opacity:0.4; pointer-events:none; }
-        .col-card { border:1px solid var(--divider-color,#ddd); border-radius:10px; overflow:hidden; }
-        .col-header { padding:8px 12px; font-weight:600; font-size:.85em; color:#fff; display:flex; align-items:center; gap:6px; }
-        .col-body { padding:12px; }
+        /* ── Flags ───────────────────────────────────────────────────────── */
+        .flag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+        .flag { padding: 3px 9px; border-radius: 12px; font-size: .8em; font-weight: 500; }
+        .flag.on  { background: #16a34a22; color: #16a34a; }
+        .flag.off { background: #6b728022; color: #6b7280; }
 
-        .field { margin-bottom:12px; }
-        .field:last-child { margin-bottom:0; }
-        .field label { display:block; font-weight:500; margin-bottom:2px; font-size:.9em; }
-        .field .desc { font-size:.79em; color:var(--secondary-text-color,#888); margin-bottom:4px; line-height:1.4; }
-        .field input[type=number],.field input[type=text] { width:100%; padding:6px 8px; border:1px solid var(--divider-color,#ccc); border-radius:6px; font-size:.92em; box-sizing:border-box; background:var(--card-background-color,#fff); color:var(--primary-text-color,#333); }
-        .field .toggle { display:inline-flex; align-items:center; gap:8px; cursor:pointer; }
-        .field .toggle input { width:17px; height:17px; }
+        /* ── Mode labels ─────────────────────────────────────────────────── */
+        .mode-lbl { color: var(--secondary-text-color, #888); margin-bottom: 2px; font-size: .85em; }
+        .mode-val { font-size: .88em; color: var(--primary-text-color, #333); }
+        .mode-err { font-size: .88em; color: #dc2626; }
 
-        .stat-col-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:12px; }
-        @media (max-width:680px) { .stat-col-grid { grid-template-columns:1fr; } }
-        .stat-col-card { border:1px solid var(--divider-color,#ddd); border-radius:10px; overflow:hidden; }
-        .stat-col-header { padding:8px 12px; font-weight:600; font-size:.85em; color:#fff; display:flex; align-items:center; gap:6px; }
-        .stat-col-body { padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+        /* ── Zone banner ─────────────────────────────────────────────────── */
+        .zone-banner { padding: 12px; border-radius: 8px; color: #fff; font-weight: 600; font-size: 1.1em; margin-bottom: 12px; text-align: center; }
 
-        .stat-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-        .stat { padding:7px 10px; border-radius:6px; background:var(--secondary-background-color,#f0f0f0); }
-        .stat .val { font-size:1.15em; font-weight:600; }
-        .stat .lbl { font-size:.76em; color:var(--secondary-text-color,#888); margin-top:2px; }
-        .stat-full { padding:7px 10px; border-radius:6px; background:var(--secondary-background-color,#f0f0f0); }
-        .stat-full .val { font-size:1.15em; font-weight:600; }
-        .stat-full .lbl { font-size:.76em; color:var(--secondary-text-color,#888); margin-top:2px; }
+        /* ── Buttons ─────────────────────────────────────────────────────── */
+        .btn { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: .9em; font-weight: 500; }
+        .btn-secondary { background: var(--secondary-background-color, #eee); color: var(--primary-text-color, #333); }
 
-        .flag-row { display:flex; flex-wrap:wrap; gap:5px; }
-        .flag { padding:3px 9px; border-radius:12px; font-size:.8em; font-weight:500; }
-        .flag.on  { background:#16a34a22; color:#16a34a; }
-        .flag.off { background:#6b728022; color:#6b7280; }
-
-        .mode-lbl { color:var(--secondary-text-color,#888); margin-bottom:2px; font-size:.85em; }
-        .mode-val { font-size:.88em; color:var(--primary-text-color,#333); }
-        .mode-err { font-size:.88em; color:#dc2626; }
-
-        .zone-banner { padding:12px; border-radius:8px; color:#fff; font-weight:600; font-size:1.1em; margin-bottom:12px; text-align:center; }
-        .btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:.9em; }
-        .btn-secondary { background:var(--secondary-background-color,#eee); color:var(--primary-text-color,#333); }
-        #save-bar { display:none; position:sticky; bottom:0; background:var(--primary-color,#03a9f4); color:#fff; padding:10px 16px; border-radius:8px; margin-top:12px; align-items:center; justify-content:space-between; z-index:10; }
-        #save-bar button { background:#fff; color:var(--primary-color,#03a9f4); border:none; padding:6px 16px; border-radius:6px; cursor:pointer; font-weight:600; }
-        #toast { display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); padding:10px 24px; border-radius:8px; color:#fff; z-index:999; font-size:.9em; }
+        /* ── Save bar ────────────────────────────────────────────────────── */
+        #save-bar { display: none; position: sticky; bottom: 0; background: var(--primary-color, #03a9f4); color: #fff; padding: 10px 16px; border-radius: 8px; margin-top: 12px; align-items: center; justify-content: space-between; z-index: 10; }
+        #save-bar button { background: #fff; color: var(--primary-color, #03a9f4); border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        #toast { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 8px; color: #fff; z-index: 999; font-size: .9em; }
       </style>
+
       <div class="wrap">
-        <h1>⚡ Solakon ONE Nulleinspeisung</h1>
-        <div class="reg-bar off" id="reg-bar"><div class="reg-dot"></div><span id="reg-text">Regelung inaktiv</span></div>
 
-        <details class="global-info">
-          <summary>ℹ️ Über diese Integration</summary>
-          <div class="global-body">
-            <p>Die <strong>Solakon ONE Nulleinspeisung</strong> regelt die Ausgangsleistung des Wechselrichters vollautomatisch so, dass der Netzbezug möglichst bei 0 W gehalten wird — ohne Einspeisung ins öffentliche Netz.</p>
-            <p>Kern ist ein <strong>PI-Regler</strong> mit der Netzleistung als Regelgröße und der WR-Ausgangsleistung als Stellgröße. Das Verhalten richtet sich nach vier <strong>SOC-Zonen</strong>: Zone 1 entlädt aggressiv, Zone 2 batterieschonend, Zone 3 sperrt die Entladung, Zone 0 speist aktiv Überschuss ein.</p>
-            <p>Optionale Module: <strong>AC-Laden</strong> bei erkanntem externem Überschuss, <strong>Tarif-Arbitrage</strong> (Tibber, aWATTar …), <strong>Dynamischer Offset</strong> aus der Netz-Volatilität (pro Zone einzeln aktivierbar), <strong>Nachtabschaltung</strong>. Alle Parameter werden persistent hier im Panel gespeichert — kein YAML, keine Helfer-Entitäten.</p>
+        <!-- ── Top card ──────────────────────────────────────────── -->
+        <div class="top-card">
+          <div class="top-card-hdr">⚡ Solakon ONE Nulleinspeisung</div>
+          <div class="top-card-body">
+            <div class="reg-bar off" id="reg-bar">
+              <div class="reg-dot"></div>
+              <span id="reg-text">Regelung inaktiv</span>
+            </div>
+            <details class="global-info">
+              <summary>ℹ️ Über diese Integration</summary>
+              <div class="global-body">
+                <p>Die <strong>Solakon ONE Nulleinspeisung</strong> regelt die Ausgangsleistung des Wechselrichters vollautomatisch so, dass der Netzbezug möglichst bei 0 W gehalten wird — ohne Einspeisung ins öffentliche Netz.</p>
+                <p>Kern ist ein <strong>PI-Regler</strong> mit der Netzleistung als Regelgröße und der WR-Ausgangsleistung als Stellgröße. Das Verhalten richtet sich nach vier <strong>SOC-Zonen</strong>: Zone 1 entlädt aggressiv, Zone 2 batterieschonend, Zone 3 sperrt die Entladung, Zone 0 speist aktiv Überschuss ein.</p>
+                <p>Optionale Module: <strong>AC-Laden</strong>, <strong>Tarif-Arbitrage</strong>, <strong>Dynamischer Offset</strong> (pro Zone einzeln), <strong>Nachtabschaltung</strong>. Alle Parameter werden persistent hier im Panel gespeichert — kein YAML, keine Helfer-Entitäten.</p>
+              </div>
+            </details>
           </div>
-        </details>
+        </div>
 
-        <div class="tabs" id="tabs"></div>
-        <div class="content" id="content"></div>
-        <div id="save-bar"><span>Ungespeicherte Änderungen</span><button onclick="this.getRootNode().host._saveSettings()">💾 Speichern</button></div>
+        <!-- ── Tab panel (tabs + content als ein Element) ────────── -->
+        <div class="tab-panel">
+          <div class="tab-bar" id="tabs"></div>
+          <div class="tab-content" id="content"></div>
+        </div>
+
+        <div id="save-bar">
+          <span>Ungespeicherte Änderungen</span>
+          <button onclick="this.getRootNode().host._saveSettings()">💾 Speichern</button>
+        </div>
       </div>
       <div id="toast"></div>
     `;
@@ -458,14 +525,24 @@ class SolakonPanel extends HTMLElement {
     }
   }
 
+  // ── Tab rendering ─────────────────────────────────────────────────────────
+
   _renderActiveTab() {
     const c = this.shadowRoot.getElementById("content");
+
     if (this._activeTab === "status") {
       this._renderStatus(c);
       this._updateStatusView();
       this._updateSaveBar();
       return;
     }
+
+    if (this._activeTab === "debug") {
+      this._renderDebug();
+      this._updateSaveBar();
+      return;
+    }
+
     c.innerHTML = "";
 
     const doc = TAB_DOCS[this._activeTab];
@@ -484,11 +561,20 @@ class SolakonPanel extends HTMLElement {
   _renderLayout(container, layout) {
     const enabledKey = layout.enabledKey || null;
 
+    // Top fields → in einem "Allgemein"-Kasten
     if (layout.top?.length) {
-      const topWrap = document.createElement("div");
-      topWrap.className = "top-fields";
-      for (const f of layout.top) topWrap.appendChild(this._makeField(f));
-      container.appendChild(topWrap);
+      const topCard = document.createElement("div");
+      topCard.className = "col-card top-item";
+      const topHdr = document.createElement("div");
+      topHdr.className = "col-header";
+      topHdr.style.background = "#475569";
+      topHdr.textContent = "⚙️ Allgemein";
+      topCard.appendChild(topHdr);
+      const topBody = document.createElement("div");
+      topBody.className = "col-body";
+      for (const f of layout.top) topBody.appendChild(this._makeField(f));
+      topCard.appendChild(topBody);
+      container.appendChild(topCard);
     }
 
     if (!layout.cols?.length) return;
@@ -562,6 +648,8 @@ class SolakonPanel extends HTMLElement {
     return div;
   }
 
+  // ── Status tab ────────────────────────────────────────────────────────────
+
   _renderStatus(c) {
     c.innerHTML = `
       <div class="zone-banner" id="zone-banner">Lade…</div>
@@ -588,9 +676,10 @@ class SolakonPanel extends HTMLElement {
               <div class="stat"><div class="val" id="st-int">—</div><div class="lbl">PI Integral</div></div>
               <div class="stat"><div class="val" id="st-stddev">—</div><div class="lbl">Netz-StdDev</div></div>
             </div>
-            <div class="stat-row">
-              <div class="stat"><div class="val" id="st-dynoff-z1">—</div><div class="lbl">Offset Z1</div></div>
-              <div class="stat"><div class="val" id="st-dynoff-z2">—</div><div class="lbl">Offset Z2</div></div>
+            <div class="stat-full">
+              <div class="val" id="st-offset-val">—</div>
+              <div class="lbl" id="st-offset-lbl">Aktiver Offset</div>
+              <div class="lbl-src" id="st-offset-src">—</div>
             </div>
             <div class="stat-row">
               <div class="stat"><div class="val" id="st-elapsed">—</div><div class="lbl">Seit letztem Output</div></div>
@@ -622,69 +711,126 @@ class SolakonPanel extends HTMLElement {
         </div>
 
       </div>
-      <div id="st-ac-row" style="display:none; margin-bottom:10px; padding:8px 12px; border-radius:6px; background:#7c3aed18; border:1px solid #7c3aed55;">
-        <span style="font-size:.78em; color:var(--secondary-text-color,#888)">AC Lade-Offset (aktiv):</span>
-        <span id="st-ac-offset" style="font-weight:600; color:#7c3aed; margin-left:6px;">—</span>
-      </div>
-      <button class="btn btn-secondary" onclick="this.getRootNode().host._resetIntegral()">🔄 Integral zurücksetzen</button>
     `;
   }
 
   _fmt_elapsed(ts) {
     if (!ts) return "—";
     const el = Math.round(Date.now() / 1000 - ts);
-    if (el < 0)         return "—";
-    if (el < 60)        return `${el} s`;
-    if (el < 3600)      return `${Math.floor(el / 60)} min ${el % 60} s`;
+    if (el < 0)    return "—";
+    if (el < 60)   return `${el} s`;
+    if (el < 3600) return `${Math.floor(el / 60)} min ${el % 60} s`;
     return `${Math.floor(el / 3600)} h ${Math.floor((el % 3600) / 60)} min`;
   }
 
   _updateStatusView() {
     const st = this._status;
     if (!st) return;
+
     const z = ZONE_CFG[st.zone] || ZONE_CFG[2];
     const b = this.shadowRoot.getElementById("zone-banner");
     if (b) { b.textContent = `${z.icon} ${z.label}`; b.style.background = z.color; }
 
     const set = (id, v) => { const e = this.shadowRoot.getElementById(id); if (e) e.textContent = v; };
 
-    set("st-grid",   `${st.grid.toFixed(0) ?? "—"} W`);
-    set("st-actual", `${st.actual_power ?? "—"} W`);
-    set("st-solar",  `${st.solar ?? "—"} W`);
-    set("st-soc",    `${st.soc ?? "—"} %`);
-    set("st-int",    `${(st.integral ?? 0).toFixed(2)}`);
-    set("st-stddev", `${(st.stddev ?? 0).toFixed(1)} W`);
+    set("st-grid",        `${(st.grid ?? 0).toFixed(0)} W`);
+    set("st-actual",      `${st.actual_power ?? "—"} W`);
+    set("st-solar",       `${st.solar ?? "—"} W`);
+    set("st-soc",         `${st.soc ?? "—"} %`);
+    set("st-int",         `${(st.integral ?? 0).toFixed(2)}`);
+    set("st-stddev",      `${(st.stddev ?? 0).toFixed(1)} W`);
+    set("st-elapsed",     this._fmt_elapsed(st.last_output_ts));
+    set("st-mode-elapsed",this._fmt_elapsed(st.mode_label_ts));
+    set("st-mode",        st.mode_label  || "—");
+    set("st-action",      st.last_action || "—");
+    set("st-error",       st.last_error  || "Keine");
 
-    set("st-dynoff-z1", st.dyn_z1_enabled ? `${(st.dyn_z1 ?? 0).toFixed(0)} W` : "inaktiv");
-    set("st-dynoff-z2", st.dyn_z2_enabled ? `${(st.dyn_z2 ?? 0).toFixed(0)} W` : "inaktiv");
-
-    set("st-elapsed",      this._fmt_elapsed(st.last_output_ts));
-    set("st-mode-elapsed", this._fmt_elapsed(st.mode_label_ts));
-
-    set("st-mode",   st.mode_label  || "—");
-    set("st-action", st.last_action || "—");
-    set("st-error",  st.last_error  || "Keine");
-
-    const acRow = this.shadowRoot.getElementById("st-ac-row");
-    if (acRow) {
-      if (st.ac_charge) {
-        acRow.style.display = "block";
-        set("st-ac-offset", st.dyn_ac_enabled
-          ? `${(st.dyn_ac ?? 0).toFixed(0)} W (dynamisch)`
-          : `${this._settings.ac_offset ?? "—"} W (statisch)`);
-      } else {
-        acRow.style.display = "none";
-      }
+    // ── Aktiver Offset: nur für den aktuell relevanten Arbeitsbereich ──────
+    let offsetLabel, offsetActive, isDyn, offsetStatic;
+    if (st.ac_charge) {
+      offsetLabel   = "Zone AC Laden";
+      isDyn         = !!st.dyn_ac_enabled;
+      offsetStatic  = this._settings.ac_offset ?? "—";
+      offsetActive  = isDyn ? (st.dyn_ac ?? 0).toFixed(0) : offsetStatic;
+    } else if (st.cycle_active) {
+      offsetLabel   = "Zone 1";
+      isDyn         = !!st.dyn_z1_enabled;
+      offsetStatic  = this._settings.offset_1 ?? "—";
+      offsetActive  = isDyn ? (st.dyn_z1 ?? 0).toFixed(0) : offsetStatic;
+    } else {
+      offsetLabel   = "Zone 2";
+      isDyn         = !!st.dyn_z2_enabled;
+      offsetStatic  = this._settings.offset_2 ?? "—";
+      offsetActive  = isDyn ? (st.dyn_z2 ?? 0).toFixed(0) : offsetStatic;
     }
+    set("st-offset-val", `${offsetActive} W`);
+    set("st-offset-lbl", `Aktiver Offset — ${offsetLabel}`);
+    set("st-offset-src", isDyn
+      ? `dynamisch ● statisch: ${offsetStatic} W`
+      : `statisch ● dyn. inaktiv`
+    );
 
     const fl = this.shadowRoot.getElementById("st-flags");
     if (fl) fl.innerHTML = [
-      ["Zyklus", st.cycle_active],
-      ["Surplus", st.surplus_active],
-      ["AC Laden", st.ac_charge],
+      ["Zyklus",      st.cycle_active],
+      ["Surplus",     st.surplus_active],
+      ["AC Laden",    st.ac_charge],
       ["Tarif-Laden", st.tariff_charge],
     ].map(([n, v]) => `<span class="flag ${v ? "on" : "off"}">${v ? "●" : "○"} ${n}</span>`).join("");
   }
+
+  // ── Debug tab ─────────────────────────────────────────────────────────────
+
+  _renderDebug() {
+    const c = this.shadowRoot.getElementById("content");
+    const zoneState = this._status
+      ? (this._status.cycle_active ? "Zone 1 (Zyklus aktiv)" : "Zone 2")
+      : "—";
+
+    c.innerHTML = `
+      <div class="col-grid cols-2">
+
+        <div class="col-card">
+          <div class="col-header" style="background:#7c3aed">🔄 PI-Integral</div>
+          <div class="col-body">
+            <p style="font-size:.85em;color:var(--secondary-text-color,#888);margin:0 0 12px">
+              Setzt den I-Anteil des PI-Reglers manuell auf 0 zurück.
+              Nützlich nach einem manuellen Eingriff oder bei starkem Integral-Windup.
+            </p>
+            <button class="btn btn-secondary"
+              onclick="this.getRootNode().host._resetIntegral()">
+              🔄 Integral zurücksetzen
+            </button>
+          </div>
+        </div>
+
+        <div class="col-card">
+          <div class="col-header" style="background:#0891b2">🔁 Zone manuell setzen</div>
+          <div class="col-body">
+            <p style="font-size:.85em;color:var(--secondary-text-color,#888);margin:0 0 4px">
+              Schaltet den Entlade-Zyklus manuell um und setzt das Integral zurück.
+            </p>
+            <p style="font-size:.85em;margin:0 0 12px">
+              Aktuell: <strong id="dbg-zone-state">${zoneState}</strong>
+            </p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn" style="background:#16a34a;color:#fff"
+                onclick="this.getRootNode().host._toggleCycle(true)">
+                ⚡ Zone 1 aktivieren
+              </button>
+              <button class="btn" style="background:#0891b2;color:#fff"
+                onclick="this.getRootNode().host._toggleCycle(false)">
+                🔋 Zone 2 aktivieren
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    `;
+  }
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   _updateRegBanner() {
     const on = this._settings.regulation_enabled;
@@ -709,7 +855,9 @@ class SolakonPanel extends HTMLElement {
     setTimeout(() => { t.style.display = "none"; }, 3000);
   }
 
-  disconnectedCallback() { if (this._polling) { clearInterval(this._polling); this._polling = null; } }
+  disconnectedCallback() {
+    if (this._polling) { clearInterval(this._polling); this._polling = null; }
+  }
 }
 
 customElements.define("solakon-panel", SolakonPanel);
