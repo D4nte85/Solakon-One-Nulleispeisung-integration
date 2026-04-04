@@ -500,9 +500,11 @@ class SolakonCoordinator:
         # ── 8. Entladestrom zonenabhängig ────────────────────────────────────
         if self.surplus_active:
             await self._set_discharge(2)
-        elif self.cycle_active and mode != MODE_AC_CHARGE:
+        elif self.ac_charge_active or self.tariff_charge_active:
+            await self._set_discharge(0)
+        elif self.cycle_active:
             await self._set_discharge(discharge_max)
-        elif not self.ac_charge_active and not self.tariff_charge_active:
+        else:
             await self._set_discharge(0)
 
         # ── 9. Timeout-Reset ─────────────────────────────────────────────────
@@ -515,9 +517,10 @@ class SolakonCoordinator:
             self.mode_label = "Überschuss-Einspeisung"
             self._set_last_action(f"Zone 0: Output → {hard_limit} W")
             await self._wait_for_target(hard_limit)
-
+            
         elif self.ac_charge_active:
             ac_grid_err = grid - ac_offset
+            new_pw = current_power
             if abs(ac_grid_err) > tolerance:
                 new_pw = self._pi_calculate(
                     grid, current_power, ac_offset, ac_power_limit,
@@ -525,10 +528,7 @@ class SolakonCoordinator:
                 )
                 await self._set_output(new_pw)
                 self._set_last_action(f"AC-PI: {current_power:.0f} → {new_pw:.0f} W")
-            await self._wait_for_target(
-                new_pw if abs(ac_grid_err) > tolerance else current_power,
-                ac_charge_mode=True,
-            )
+            await self._wait_for_target(new_pw, ac_charge_mode=True)
 
         elif self.tariff_charge_active:
             await self._set_output(tariff_power)
