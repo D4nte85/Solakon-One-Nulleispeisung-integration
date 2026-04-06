@@ -11,6 +11,23 @@ const ZONE_CFG = {
   3: { label: "Zone 3 — Stopp",      color: "#dc2626", icon: "⛔" },
 };
 
+const FALL_LABELS = {
+  "0A": "Zone 0: Überschuss Start",
+  "0B": "Zone 0: Überschuss Ende",
+  "A":  "Zone 1: Entladezyklus Start",
+  "B":  "Zone 3: Stopp (Zyklus aktiv)",
+  "C":  "Zone 3: Stopp",
+  "D":  "Recovery: Modus wiederhergestellt",
+  "E":  "Zone 2: Regelung aktiv",
+  "F":  "Nacht: Abschaltung",
+  "G":  "AC Laden: Start",
+  "H":  "AC Laden: Ende",
+  "I":  "Safety: Modus-Korrektur",
+  "GT": "Tarif-Laden: Start",
+  "HT": "Tarif-Laden: Ende",
+  "BT": "Discharge-Lock: Preis zu hoch",
+};
+
 const TABS = [
   { id: "status",  label: "Status",      icon: "📊" },
   { id: "pi",      label: "PI-Regler",   icon: "🎛️" },
@@ -690,7 +707,7 @@ class SolakonPanel extends HTMLElement {
       ["Nacht",         st.is_night],
     ].map(([n, v]) => `<span class="flag ${v ? "on" : "off"}">${v ? "●" : "○"} ${n}</span>`).join("");
 
-    set("st-active-fall", st.active_fall || "—");
+    set("st-active-fall", FALL_LABELS[st.active_fall] || st.active_fall || "—");
     set("st-grid",         `${(st.grid ?? 0).toFixed(0)} W`);
     set("st-actual",       `${st.actual_power ?? "—"} W`);
     set("st-solar",        `${st.solar ?? "—"} W`);
