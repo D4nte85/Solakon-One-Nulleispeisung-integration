@@ -52,12 +52,14 @@ class SolakonCoordinator:
         self.last_action: str = "Keine"
         self.last_error: str = ""
         self.integral: float = 0.0
+        self.active_fall: str = "—"
 
         # Boolsche Status-Flags
         self.cycle_active: bool = False
         self.surplus_active: bool = False
         self.ac_charge_active: bool = False
         self.tariff_charge_active: bool = False
+        self.is_night: bool = False
 
         # Zeitstempel
         self.last_action_ts: float = time.time()
@@ -452,6 +454,7 @@ class SolakonCoordinator:
             new_surplus = False
 
         is_night = night_enabled and solar < pv_reserve and not self.cycle_active
+        self.is_night = is_night
 
         tariff_price = 0.0
         tariff_price_valid = False
@@ -475,6 +478,8 @@ class SolakonCoordinator:
             tariff_soc=tariff_soc, tariff_power=tariff_power,
             is_night=is_night, pv_reserve=pv_reserve,
         )
+        if fall_executed:
+            self.active_fall = fall_executed
 
         # ── 6. Frische Werte nach Falls ──────────────────────────────────────
         grid = self._flt(cfg[CONF_GRID_SENSOR])
