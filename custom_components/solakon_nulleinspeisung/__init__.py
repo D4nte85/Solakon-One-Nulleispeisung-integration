@@ -98,6 +98,7 @@ async def _ws_get_status(
         "dyn_z1": coord.dyn_offset_z1,
         "dyn_z2": coord.dyn_offset_z2,
         "dyn_ac": coord.dyn_offset_ac,
+        "active_fall": coord.active_fall,
     })
 
 
