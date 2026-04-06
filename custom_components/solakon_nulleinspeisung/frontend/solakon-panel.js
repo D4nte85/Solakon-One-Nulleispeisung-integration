@@ -727,13 +727,6 @@ class SolakonPanel extends HTMLElement {
       ? `<span class="offset-src-tag active">⚡ dynamisch</span><span class="offset-src-tag inactive">statisch: ${offsetStatic} W</span>`
       : `<span class="offset-src-tag inactive">dyn. inaktiv</span><span class="offset-src-tag active">statisch: ${offsetStatic} W</span>`;
 
-    const fl = this.shadowRoot.getElementById("st-flags");
-    if (fl) fl.innerHTML = [
-      ["Zyklus",      st.cycle_active],
-      ["Surplus",     st.surplus_active],
-      ["AC Laden",    st.ac_charge],
-      ["Tarif-Laden", st.tariff_charge],
-    ].map(([n, v]) => `<span class="flag ${v ? "on" : "off"}">${v ? "●" : "○"} ${n}</span>`).join("");
   }
 
   // ── Debug tab ─────────────────────────────────────────────────────────────
