@@ -1,9 +1,8 @@
-"""Switch platform — Regelung ein/aus + diagnostische Zustandsanzeigen."""
+"""Switch platform — Regelung ein/aus."""
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -16,14 +15,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, add: AddEntitiesCallback
 ) -> None:
     coord: SolakonCoordinator = hass.data[DOMAIN][entry.entry_id]
-    add([
-        RegulationSwitch(coord),
-        DiagBoolSwitch(coord, "cycle_active", "Entladezyklus aktiv", "mdi:battery-arrow-up"),
-        DiagBoolSwitch(coord, "surplus_active", "Überschuss-Modus", "mdi:solar-power"),
-        DiagBoolSwitch(coord, "ac_charge_active", "AC Laden aktiv", "mdi:lightning-bolt"),
-        DiagBoolSwitch(coord, "tariff_charge_active", "Tarif-Laden aktiv", "mdi:currency-eur"),
-        DiagBoolSwitch(coord, "is_night",             "Nachtabschaltung",    "mdi:weather-night"),
-    ])
+    add([RegulationSwitch(coord)])
 
 
 class RegulationSwitch(SolakonEntity, SwitchEntity):
@@ -43,26 +35,3 @@ class RegulationSwitch(SolakonEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: object) -> None:
         await self._coordinator.async_update_settings({S_REGULATION_ENABLED: False})
-
-
-class DiagBoolSwitch(SolakonEntity, SwitchEntity):
-    """Zeigt internen Zustand an — keine Schaltaktion möglich."""
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(
-        self, coord: SolakonCoordinator, attr: str, name: str, icon: str
-    ) -> None:
-        super().__init__(coord, attr)
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr = attr
-
-    @property
-    def is_on(self) -> bool:
-        return bool(getattr(self._coordinator, self._attr, False))
-
-    async def async_turn_on(self, **kwargs: object) -> None:
-        pass  # read-only
-
-    async def async_turn_off(self, **kwargs: object) -> None:
-        pass  # read-only
