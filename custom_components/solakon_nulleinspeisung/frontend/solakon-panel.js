@@ -25,7 +25,7 @@ const FALL_LABELS = {
   "I":  "Safety: Modus-Korrektur",
   "GT": "Tarif-Laden: Start",
   "HT": "Tarif-Laden: Ende",
-  "BT": "Discharge-Lock: Preis zu hoch",
+  "TM": "Discharge-Lock: Preis zu hoch",
 };
 
 const TABS = [
@@ -192,6 +192,14 @@ const TAB_LAYOUT = {
         fields: [
           { k: "tariff_soc_target", l: "Ladeziel SOC (%)", d: "Tarif-Laden stoppt wenn dieser SOC erreicht wird. Unabhängig vom SOC-Ladeziel des AC-Lade-Moduls.", t: "num", min: 50, max: 100, step: 1 },
           { k: "tariff_power",      l: "Ladeleistung (W)", d: "Feste Ladeleistung während Tarif-Laden — kein PI-Regler, keine dynamische Anpassung.", t: "num", min: 100, max: 2000, step: 50 },
+        ],
+      },
+      {
+        title: "PV-Vorhersage", icon: "☀️", color: "#f59e0b",
+        fields: [
+          { k: "pv_forecast_enabled",  l: "PV-Vorhersage aktivieren", d: "Wenn aktiv und der Vorhersage-Sensor einen Wert ≥ Schwelle meldet, wird Tarif-Laden und Discharge-Lock unterdrückt. Automatische Flexibilität für gute Wetterlagen.", t: "bool" },
+          { k: "pv_forecast_sensor",  l: "Vorhersage-Sensor",          d: "input_number- oder sensor-Entität mit einem kWh-Wert (z.B. erwartete Solarproduktion heute). Kann von einer Wetter-Integration oder einem Solcast-Account kommen.", t: "entity" },
+          { k: "pv_forecast_threshold", l: "Schwellwert (kWh)",         d: "Wenn Vorhersage ≥ diesem Wert, gilt: Tarif-Laden und Discharge-Lock sind gesperrt, normale Nulleinspeisung läuft weiter.", t: "num", min: 0, max: 50, step: 0.5 },
         ],
       },
     ],
@@ -702,11 +710,12 @@ class SolakonPanel extends HTMLElement {
     const set = (id, v) => { const e = this.shadowRoot.getElementById(id); if (e) e.textContent = v; };
     const fl = this.shadowRoot.getElementById("st-flags");
     if (fl) fl.innerHTML = [
-      ["Zyklus",        st.cycle_active],
-      ["Surplus",       st.surplus_active],
-      ["AC Laden",      st.ac_charge],
-      ["Tarif-Laden",   st.tariff_charge],
-      ["Nacht",         st.is_night],
+      ["Zyklus",           st.cycle_active],
+      ["Surplus",          st.surplus_active],
+      ["AC Laden",         st.ac_charge],
+      ["Tarif-Laden",      st.tariff_charge],
+      ["Nacht",            st.is_night],
+      ["PV-Forecast",      st.forecast_tariff_suppressed],
     ].map(([n, v]) => `<span class="flag ${v ? "on" : "off"}">${v ? "●" : "○"} ${n}</span>`).join("");
 
     set("st-active-fall", FALL_LABELS[st.active_fall] || st.active_fall || "—");
