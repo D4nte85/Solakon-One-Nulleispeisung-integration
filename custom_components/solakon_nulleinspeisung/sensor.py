@@ -71,7 +71,7 @@ _FALL_LABELS: dict[str, str] = {
     "I":  "Safety: Modus-Korrektur",
     "GT": "Tarif-Laden: Start",
     "HT": "Tarif-Laden: Ende",
-    "BT": "Discharge-Lock: Preis zu hoch",
+    "TM": "Discharge-Lock: Preis zu hoch",
 }
 
 
