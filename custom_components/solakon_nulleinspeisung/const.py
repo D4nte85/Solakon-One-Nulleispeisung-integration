@@ -82,6 +82,13 @@ S_TARIFF_EXP_THRESHOLD = "tariff_exp_threshold"
 S_TARIFF_SOC_TARGET = "tariff_soc_target"
 S_TARIFF_POWER = "tariff_power"
 
+S_TARIFF_CHEAP_ENTITY = "tariff_cheap_entity"
+S_TARIFF_EXP_ENTITY = "tariff_exp_entity"
+
+S_PV_FORECAST_ENABLED = "pv_forecast_enabled"
+S_PV_FORECAST_SENSOR = "pv_forecast_sensor"
+S_PV_FORECAST_THRESHOLD = "pv_forecast_threshold"
+
 S_NIGHT_ENABLED = "night_enabled"
 
 # -- Self-Adjusting Wait -------------------------------------------------------
