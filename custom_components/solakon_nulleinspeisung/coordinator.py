@@ -79,7 +79,9 @@ class SolakonCoordinator:
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
         self._unsub_trackers: list[Callable] = []
-        self._tariff_unsub: Callable | None = None
+        self._tariff_unsub = None
+        self._forecast_unsub = None
+        self.forecast_tariff_suppressed: bool = False
 
     # ── Setup / Teardown ─────────────────────────────────────────────────────
 
@@ -121,6 +123,9 @@ class SolakonCoordinator:
         if self._tariff_unsub:
             self._tariff_unsub()
             self._tariff_unsub = None
+        if self._forecast_unsub:
+            self._forecast_unsub()
+            self._forecast_unsub = None
         await self._save_integral()
 
     # ── Settings-Management ──────────────────────────────────────────────────
@@ -138,6 +143,13 @@ class SolakonCoordinator:
         if old_tariff != new_tariff or old_tariff_enabled != new_tariff_enabled:
             self._update_tariff_tracker()
 
+        old_pv = self.settings.get(S_PV_FORECAST_SENSOR, "")
+        old_pv_en = self.settings.get(S_PV_FORECAST_ENABLED, False)
+        new_pv = changes.get(S_PV_FORECAST_SENSOR, old_pv)
+        new_pv_en = changes.get(S_PV_FORECAST_ENABLED, old_pv_en)
+        if old_pv != new_pv or old_pv_en != new_pv_en:
+            self._update_forecast_tracker()
+
         self.notify_listeners()
 
     def _update_tariff_tracker(self) -> None:
@@ -152,6 +164,20 @@ class SolakonCoordinator:
         if tariff_enabled and tariff_sensor:
             self._tariff_unsub = async_track_state_change_event(
                 self.hass, [tariff_sensor], self._on_state_change
+            )
+            
+    def _update_forecast_tracker(self) -> None:
+        """PV-Vorhersage-Sensor-Listener dynamisch (de-)registrieren."""
+        if self._forecast_unsub:
+            self._forecast_unsub()
+            self._forecast_unsub = None
+
+        pv_enabled = self.settings.get(S_PV_FORECAST_ENABLED, False)
+        pv_sensor = self.settings.get(S_PV_FORECAST_SENSOR, "")
+
+        if pv_enabled and pv_sensor:
+            self._forecast_unsub = async_track_state_change_event(
+                self.hass, [pv_sensor], self._on_state_change
             )
 
     async def _save_integral(self) -> None:
@@ -413,6 +439,42 @@ class SolakonCoordinator:
         tariff_sensor = str(s[S_TARIFF_PRICE_SENSOR])
         tariff_cheap = float(s[S_TARIFF_CHEAP_THRESHOLD])
         tariff_exp = float(s[S_TARIFF_EXP_THRESHOLD])
+
+        cheap_entity = str(s.get(S_TARIFF_CHEAP_ENTITY, ""))
+        if cheap_entity:
+            raw = self.hass.states.get(cheap_entity)
+            if raw and raw.state not in ("unknown", "unavailable"):
+                try:
+                    tariff_cheap = float(raw.state)
+                except (ValueError, TypeError):
+                    pass
+
+        exp_entity = str(s.get(S_TARIFF_EXP_ENTITY, ""))
+        if exp_entity:
+            raw = self.hass.states.get(exp_entity)
+            if raw and raw.state not in ("unknown", "unavailable"):
+                try:
+                    tariff_exp = float(raw.state)
+                except (ValueError, TypeError):
+                    pass
+
+        pv_forecast_enabled = bool(s.get(S_PV_FORECAST_ENABLED, False))
+        pv_forecast_sensor = str(s.get(S_PV_FORECAST_SENSOR, ""))
+        pv_forecast_threshold = float(s.get(S_PV_FORECAST_THRESHOLD, 0.0))
+
+        if pv_forecast_enabled and pv_forecast_sensor:
+            raw = self.hass.states.get(pv_forecast_sensor)
+            if raw and raw.state not in ("unknown", "unavailable"):
+                try:
+                    self.forecast_tariff_suppressed = float(raw.state) >= pv_forecast_threshold
+                except (ValueError, TypeError):
+                    self.forecast_tariff_suppressed = False
+            else:
+                self.forecast_tariff_suppressed = False
+        else:
+            self.forecast_tariff_suppressed = False
+
+        effective_tariff_enabled = tariff_enabled and not self.forecast_tariff_suppressed
         tariff_soc = int(s[S_TARIFF_SOC_TARGET])
         tariff_power = int(s[S_TARIFF_POWER])
 
@@ -473,7 +535,7 @@ class SolakonCoordinator:
             surplus_pv_hyst=surplus_pv_hyst,
             ac_enabled=ac_enabled, ac_soc_target=ac_soc_target,
             ac_hysteresis=ac_hysteresis, ac_offset=ac_offset,
-            tariff_enabled=tariff_enabled, tariff_price=tariff_price,
+            tariff_enabled=effective_tariff_enabled, tariff_price=tariff_price,
             tariff_cheap=tariff_cheap, tariff_exp=tariff_exp,
             tariff_soc=tariff_soc, tariff_power=tariff_power,
             is_night=is_night, pv_reserve=pv_reserve,
@@ -500,7 +562,7 @@ class SolakonCoordinator:
         at_min_limit = current_power <= 0
 
         # ── 7. PI-Gate ───────────────────────────────────────────────────────
-        if mode not in (MODE_DISCHARGE, MODE_AC_CHARGE):
+        if mode not in (MODE_DISCHARGE, MODE_AC_CHARGE) or self.tariff_charge_active:
             self._update_zone_display(soc, zone1_limit, zone3_limit, mode)
             self.notify_listeners()
             return
@@ -684,7 +746,7 @@ class SolakonCoordinator:
             self.tariff_charge_active = True
             self.cycle_active = True
             await self._timer_toggle()
-            await self._set_output(0)
+            await self._set_output(v["tariff_power"])
             await self._set_mode(MODE_AC_CHARGE)
             self._set_last_action(f"Fall GT: Tarif-Laden (Preis {v['tariff_price']:.1f})")
             return "GT"
@@ -722,6 +784,10 @@ class SolakonCoordinator:
             and mode == MODE_DISCHARGE
         ):
             self.integral = 0.0
+            if self.cycle_active:
+                self.cycle_active = False
+            if self.surplus_active:
+                self.surplus_active = False
             await self._set_output(0)
             await self._set_mode(MODE_DISABLED)
             self._set_last_action(f"Tarif: Discharge-Lock (Preis {v['tariff_price']:.1f})")
