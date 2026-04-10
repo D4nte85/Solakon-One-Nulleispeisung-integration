@@ -538,6 +538,7 @@ class SolakonCoordinator:
             ac_enabled=ac_enabled, ac_soc_target=ac_soc_target,
             ac_hysteresis=ac_hysteresis, ac_offset=ac_offset,
             tariff_enabled=effective_tariff_enabled, tariff_price=tariff_price,
+            tariff_price_valid=tariff_price_valid,
             tariff_cheap=tariff_cheap, tariff_exp=tariff_exp,
             tariff_soc=tariff_soc, tariff_power=tariff_power,
             is_night=is_night, pv_reserve=pv_reserve,
