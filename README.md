@@ -12,6 +12,17 @@ Die Integration regelt die Ausgangsleistung des Wechselrichters über einen **PI
 
 ---
 
+# ☀️ Solakon ONE Dashboard Vorschau
+
+Hier kannst du das Dashboard interaktiv testen:
+
+[![Live Demo](https://img.shields.io/badge/Vorschau-Live%20Demo-03a9f4?style=for-the-badge&logo=google-chrome&logoColor=white)](https://D4nte85.github.io/Solakon-One-Nulleispeisung-integration/)
+
+> [!NOTE]
+> Dies ist eine statische Web-Vorschau zur Demonstration des UI-Designs. Die Werte sind Beispieldaten.
+
+---
+
 ## Funktionsübersicht
 
 ### Kernfunktion — Nulleinspeisung mit PI-Regler
