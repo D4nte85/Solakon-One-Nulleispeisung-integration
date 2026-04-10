@@ -138,7 +138,7 @@ class GridStdDevSensor(SolakonEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         s = self._coordinator.settings
-        dyn = bool(s.get("dyn_offset_enabled", False))
+        dyn = any(s.get(k, False) for k in ("dyn_z1_enabled", "dyn_z2_enabled", "dyn_ac_enabled"))
         attrs = {
             "window_seconds": s.get("stddev_window", 60),
             "sample_count": len(self._coordinator._grid_samples),
