@@ -342,14 +342,17 @@ Die Integration erzeugt automatisch folgende Entitäten unter dem Gerät **Solak
 | `sensor.solakon_one_betriebsmodus` | Sensor | Lesbarer Modustext |
 | `sensor.solakon_one_letzte_aktion` | Sensor | Letzter Logeintrag der Steuerlogik |
 | `sensor.solakon_one_netz_standardabweichung` | Sensor | Netz-Stabw. in W über das konfigurierte Fenster |
-| `number.solakon_one_pi_integral` | Number | Aktueller I-Anteil (schreibgeschützt, nur zur Anzeige) |
+| `sensor.solakon_one_aktiver_fall` | Sensor | Aktiver Fall (0A, A, B, … TM) mit Klartext-Label |
+| `sensor.solakon_one_pi_integral` | Sensor | Aktueller I-Anteil des PI-Reglers |
 | `switch.solakon_one_regelung_aktiv` | Switch | Hauptschalter — aktiviert/deaktiviert den Schreibteil |
-| `switch.solakon_one_entladezyklus_aktiv` | Switch | Internes Flag Entladezyklus (read-only) |
-| `switch.solakon_one_uberschuss_modus` | Switch | Flag Überschuss-Modus aktiv (read-only) |
-| `switch.solakon_one_ac_laden_aktiv` | Switch | Flag AC-Laden aktiv (read-only) |
-| `switch.solakon_one_tarif_laden_aktiv` | Switch | Flag Tarif-Laden aktiv (read-only) |
+| `binary_sensor.solakon_one_entladezyklus_aktiv` | Binary Sensor | Internes Flag Entladezyklus |
+| `binary_sensor.solakon_one_uberschuss_modus` | Binary Sensor | Flag Überschuss-Modus aktiv |
+| `binary_sensor.solakon_one_ac_laden_aktiv` | Binary Sensor | Flag AC-Laden aktiv |
+| `binary_sensor.solakon_one_tarif_laden_aktiv` | Binary Sensor | Flag Tarif-Laden aktiv |
+| `binary_sensor.solakon_one_nachtabschaltung` | Binary Sensor | Flag Nachtabschaltung aktiv |
+| `binary_sensor.solakon_one_pv_vorhersage_tarif_gesperrt` | Binary Sensor | PV-Vorhersage sperrt Tarif-Laden |
 
-Die Diagnose-Switch-Entitäten sind schreibgeschützt — sie spiegeln interne Zustände wider und können nicht manuell geschaltet werden.
+Die Diagnose-Binärsensoren sind read-only — sie spiegeln interne Coordinator-Zustände wider.
 
 ---
 
