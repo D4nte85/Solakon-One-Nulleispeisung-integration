@@ -69,15 +69,15 @@ AC Laden und Tarif-Laden blockieren sich gegenseitig über den Modus-Guard (`Mod
 
 ## Multi-Instancing
 
-Bei mehr als einer installierten Instanz zeigt das Sidebar-Panel oben eine **Instanzleiste** sowie eine **Übersichtsseite** mit Echtzeit-Status aller Instanzen. Die Leistungsverteilung wird direkt im Panel konfiguriert.
+Bei mehr als einer installierten Instanz zeigt das Sidebar-Panel oben eine **Instanzleiste** sowie eine **Übersichtsseite** mit Echtzeit-Status aller Instanzen.
 
 ### `max_power_entity`
 
 Jede Instanz akzeptiert eine optionale `max_power_entity`. Ist sie gesetzt, ersetzt der aktuelle Wert dieser Entität den konfigurierten Hard Limit dynamisch. Ohne diese Entität verhält sich die Instanz identisch zur Einzelinstanz-Variante.
 
-### Leistungsverteilungs-Blueprint (`solakon_leistungsverteilung.yaml`)
+### Leistungsverteilung
 
-Berechnet die Aufteilung der zulässigen Gesamtleistung auf 2–4 Instanzen und schreibt den jeweiligen Anteil in die `max_power_entity` jeder Instanz.
+Im Panel wird bei mehreren Instanzen ein zusätzlicher **Verteilungs-Tab** eingeblendet. Dort wird konfiguriert, wie die zulässige Gesamtleistung auf die aktiven Instanzen aufgeteilt wird.
 
 | Parameter | Beschreibung |
 |-----------|-------------|
@@ -85,7 +85,6 @@ Berechnet die Aufteilung der zulässigen Gesamtleistung auf 2–4 Instanzen und 
 | Verteilungs-Modus | Gleichverteilung · Gewichtet (SOC/PV) · Manuell |
 | SOC ↔ PV Gewichtung | 0,0 = nur SOC · 1,0 = nur PV (nur Modus Gewichtet) |
 | Aktualisierungsintervall | Neuberechnung alle 10–300 s |
-
 
 ---
 
