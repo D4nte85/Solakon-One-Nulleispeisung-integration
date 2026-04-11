@@ -67,6 +67,9 @@ S_SURPLUS_ENABLED       = "surplus_enabled"
 S_SURPLUS_SOC_THRESHOLD = "surplus_soc_threshold"
 S_SURPLUS_SOC_HYST      = "surplus_soc_hyst"
 S_SURPLUS_PV_HYST       = "surplus_pv_hyst"
+S_SURPLUS_FORECAST_ENABLED   = "surplus_forecast_enabled"
+S_SURPLUS_FORECAST_SENSOR    = "surplus_forecast_sensor"
+S_SURPLUS_FORECAST_THRESHOLD = "surplus_forecast_threshold"
 
 S_AC_ENABLED     = "ac_enabled"
 S_AC_SOC_TARGET  = "ac_soc_target"
@@ -136,6 +139,9 @@ SETTINGS_DEFAULTS: dict = {
     S_SURPLUS_SOC_THRESHOLD: 95,
     S_SURPLUS_SOC_HYST:      5,
     S_SURPLUS_PV_HYST:       50,
+    S_SURPLUS_FORECAST_ENABLED:   False,
+    S_SURPLUS_FORECAST_SENSOR:    "",
+    S_SURPLUS_FORECAST_THRESHOLD: 5.0,
 
     S_AC_ENABLED:     False,
     S_AC_SOC_TARGET:  90,
