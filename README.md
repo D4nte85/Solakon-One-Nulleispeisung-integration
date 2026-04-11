@@ -16,7 +16,7 @@ Die Integration regelt die Ausgangsleistung des Wechselrichters über einen **PI
 
 Hier kannst du das Dashboard interaktiv testen:
 
-[![Live Demo](https://img.shields.io/badge/Vorschau-Live%20Demo-03a9f4?style=for-the-badge&logo=google-chrome&logoColor=white)](https://D4nte85.github.io/Solakon-One-Nulleispeisung-integration/)
+[![Live Demo](https://img.shields.io/badge/Vorschau-Live%20Demo-03a9f4?style=for-the-badge&logo=google-chrome&logoColor=white)](https://D4nte85.github.io/Solakon-One-Nulleinspeisung-integration/)
 
 > [!NOTE]
 > Dies ist eine statische Web-Vorschau zur Demonstration des UI-Designs. Die Werte sind Beispieldaten.
@@ -118,7 +118,7 @@ Die folgenden Solakon-Entitäten müssen in HA vorhanden sein und werden beim Ei
 ### Über HACS (empfohlen)
 
 1. HACS öffnen → **Integrationen** → drei Punkte oben rechts → **Benutzerdefiniertes Repository hinzufügen**
-2. URL eintragen: `https://github.com/D4nte85/Solakon-One-Nulleispeisung-integration`
+2. URL eintragen: `https://github.com/D4nte85/Solakon-One-Nulleinspeisung-integration`
 3. Kategorie: **Integration** → **Hinzufügen**
 4. Die Integration **Solakon ONE Nulleinspeisung** erscheint in der Liste → **Herunterladen**
 5. Home Assistant neu starten
