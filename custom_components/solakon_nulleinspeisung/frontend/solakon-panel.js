@@ -143,6 +143,14 @@ const TAB_LAYOUT = {
           { k: "surplus_pv_hyst", l: "PV-Hysterese (W)", d: "Eintritt: PV > Output + Grid + Hysterese. Austritt: PV ≤ Output + Grid − Hysterese.", t: "num", min: 10, max: 200, step: 10 },
         ],
       },
+      {
+      title: "PV-Vorhersage", icon: "🌤️", color: "#65a30d",
+      fields: [
+        { k: "surplus_forecast_enabled",   l: "Forecast-Sperre aktivieren",  d: "Surplus wird automatisch deaktiviert wenn der Vorhersage-Sensor unterhalb der Schwelle liegt. Bei Sensor-Fehler oder unavailable bleibt Surplus aktiv.", t: "bool" },
+        { k: "surplus_forecast_sensor",    l: "Vorhersage-Sensor",           d: "Sensor mit dem prognostizierten PV-Ertrag (z. B. Forecast.Solar, Solcast). Einheit muss zur Schwelle passen (z. B. kWh).", t: "entity" },
+        { k: "surplus_forecast_threshold", l: "Mindest-Ertrag für Surplus",  d: "Liegt der Forecast-Wert darunter, wird Surplus für den Tag deaktiviert.", t: "num", min: 0, max: 100, step: 0.5 },
+      ],
+    },
     ],
   },
 
