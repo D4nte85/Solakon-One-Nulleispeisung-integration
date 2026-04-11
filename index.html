@@ -305,7 +305,7 @@ function rZones(){
 }
 
 function rSurplus(){
-  return acc('Überschuss-Einspeisung — Zone 0','Höchste Priorität. Eintritt: SOC ≥ Schwelle UND (PV > Output + Grid + PV-Hysterese ODER PV = 0 ODER Output = 0 ODER Vorhersage erzwingt).\nAustritt: SOC < (Schwelle − SOC-Hysterese) ODER (PV ≤ Output + Grid − PV-Hysterese UND PV ≠ 0 UND Output ≠ 0 UND keine Erzwingung).\nOutput auf Hard Limit. Integral eingefroren.')+
+  return acc('Überschuss-Einspeisung — Zone 0','Höchste Priorität.\nNormaler Eintritt: SOC ≥ Schwelle UND (PV > Output + Grid + Hysterese ODER PV = 0 ODER Output = 0).\nForecast-Eintritt: Vorhersage ≥ Schwelle UND PV > Hard Limit (kein SOC-Gate).\nAustritt (nur ohne Forecast): SOC < (Schwelle − Hysterese) ODER PV-Exit.\nBei Forecast: Exit blockiert — nur Zone 3 beendet Surplus.\nOutput auf Hard Limit. Integral eingefroren.')+
   card('⚙️ Allgemein','#475569',fb('Überschuss-Einspeisung aktivieren','Höchste Priorität — blockiert Tarif-Laden, Discharge-Lock und AC Laden solange Zone 0 aktiv.',false,'cb-surplus'))+
   `<div id="blk-surplus-cols" class="dimmed" style="margin-top:10px"><div class="cg3">
     ${card('🔋 SOC-Bedingung','#0891b2',
@@ -314,9 +314,9 @@ function rSurplus(){
     ${card('☀️ PV-Bedingung','#f59e0b',
       fi('PV-Hysterese (W)','Eintritt: PV > Output + Grid + Hysterese. Austritt: PV ≤ Output + Grid − Hysterese.','number',50,'min=10 max=200 step=10'))}
     ${card('🌤️ PV-Vorhersage','#65a30d',
-      fb('Forecast-Erzwingung aktivieren','Surplus-Eintritt wird erzwungen wenn Vorhersage ≥ Schwelle. PV-basierter Exit blockiert — nur SOC-Exit greift.',false)+
+      fb('Forecast-Erzwingung aktivieren','Wenn Vorhersage ≥ Schwelle: Surplus startet bei PV > Hard Limit ohne SOC-Gate. Exit komplett blockiert bis Forecast wegfällt.',false)+
       fi('Vorhersage-Sensor','Sensor mit prognostiziertem PV-Ertrag (z.B. Solcast). Einheit muss zur Schwelle passen.','text','','placeholder="sensor.solcast_prognose"')+
-      fi('Mindest-Ertrag für Surplus','Surplus wird erzwungen wenn die Vorhersage diesen Wert erreicht oder überschreitet.','number',5,'min=0 max=100 step=0.5'))}
+      fi('Mindest-Ertrag für Surplus','PV > Hard Limit + Forecast ≥ Schwelle → Surplus startet und bleibt aktiv bis Forecast unter Schwelle fällt.','number',5,'min=0 max=100 step=0.5'))}
   </div></div>`;
 }
 
