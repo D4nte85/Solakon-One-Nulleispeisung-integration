@@ -191,13 +191,17 @@ Ein positiver Offset von z. B. 30 W lässt den Regler auf 30 W Netzbezug regeln 
 
 Optionale Überschuss-Einspeisung (Zone 0). **Hat absoluten Vorrang vor allen anderen optionalen Modulen** — Tarif-Laden, Discharge-Lock und AC Laden werden blockiert solange Zone 0 aktiv ist.
 
-**Eintritts-Bedingung:** SOC ≥ Export-Schwelle UND (PV > Output + Grid + PV-Hysterese ODER PV = 0 ODER Output = 0 ODER PV-Vorhersage erzwingt)
+**Normaler Eintritt:** SOC ≥ Export-Schwelle UND (PV > Output + Grid + PV-Hysterese ODER PV = 0 ODER Output = 0)
 
-> Der `PV = 0`-Zweig deckt den Fall ab, dass das MPPT die PV bei vollem Akku auf 0 W drosselt. Der `Output = 0`-Zweig fängt den Fall ab, dass der Solakon keinen Output hat obwohl die Batterie über der Surplus-Schwelle liegt (z.B. PV durch andere Anlage abgeriegelt). Die PV-Vorhersage erzwingt den Eintritt bei erwarteter hoher Erzeugung.
+> Der `PV = 0`-Zweig deckt den Fall ab, dass das MPPT die PV bei vollem Akku auf 0 W drosselt. Der `Output = 0`-Zweig fängt den Fall ab, dass der Solakon keinen Output hat obwohl die Batterie über der Surplus-Schwelle liegt (z.B. PV durch andere Anlage abgeriegelt).
 
-**Austritts-Bedingung:** SOC < (Export-Schwelle − SOC-Hysterese) ODER (PV ≤ Output + Grid − PV-Hysterese UND PV ≠ 0 UND Output ≠ 0 UND keine Vorhersage-Erzwingung)
+**Forecast-Eintritt:** PV-Vorhersage ≥ Schwelle UND PV > Hard Limit
 
-> Der PV-basierte Exit greift nur wenn keine der Bypass-Bedingungen (PV = 0, Output = 0, Vorhersage) aktiv ist. SOC-basierter Exit greift immer.
+> Kein SOC-Gate — Surplus startet sobald PV die maximale Ausgangsleistung übersteigt. Gedacht für sonnige Tage: 800 W werden dauerhaft ausgegeben, der Rest lädt die Batterie.
+
+**Austritts-Bedingung (nur ohne aktive Vorhersage):** SOC < (Export-Schwelle − SOC-Hysterese) ODER (PV ≤ Output + Grid − PV-Hysterese UND PV ≠ 0 UND Output ≠ 0)
+
+> Bei aktiver Vorhersage ist der gesamte Exit blockiert — nur Zone 3 (Safety-Stopp) beendet Surplus. Sobald der Forecast-Sensor unter die Schwelle fällt (z.B. abends bei Tagesvorhersage-Aktualisierung), greift die normale Exit-Logik sofort.
 
 | Parameter | Beschreibung | Empfehlung |
 |-----------|-------------|------------|
