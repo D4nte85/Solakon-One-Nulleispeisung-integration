@@ -84,6 +84,8 @@ class SolakonCoordinator:
         self._tariff_unsub = None
         self._forecast_unsub = None
         self.forecast_tariff_suppressed: bool = False
+        self._surplus_forecast_unsub = None
+        self.forecast_surplus_suppressed: bool = False
 
     # ── Setup / Teardown ─────────────────────────────────────────────────────
 
@@ -128,6 +130,9 @@ class SolakonCoordinator:
         if self._forecast_unsub:
             self._forecast_unsub()
             self._forecast_unsub = None
+        if self._surplus_forecast_unsub:
+            self._surplus_forecast_unsub()
+            self._surplus_forecast_unsub = None
         await self._save_integral()
 
     # ── Settings-Management ──────────────────────────────────────────────────
@@ -152,6 +157,13 @@ class SolakonCoordinator:
         if old_pv != new_pv or old_pv_en != new_pv_en:
             self._update_forecast_tracker()
 
+        old_sf = self.settings.get(S_SURPLUS_FORECAST_SENSOR, "")
+        old_sf_en = self.settings.get(S_SURPLUS_FORECAST_ENABLED, False)
+        new_sf = changes.get(S_SURPLUS_FORECAST_SENSOR, old_sf)
+        new_sf_en = changes.get(S_SURPLUS_FORECAST_ENABLED, old_sf_en)
+        if old_sf != new_sf or old_sf_en != new_sf_en:
+            self._update_surplus_forecast_tracker()
+    
         self.notify_listeners()
 
     def _update_tariff_tracker(self) -> None:
@@ -181,6 +193,19 @@ class SolakonCoordinator:
             self._forecast_unsub = async_track_state_change_event(
                 self.hass, [pv_sensor], self._on_state_change
             )
+
+    def _update_surplus_forecast_tracker(self) -> None:
+    if self._surplus_forecast_unsub:
+        self._surplus_forecast_unsub()
+        self._surplus_forecast_unsub = None
+
+    enabled = self.settings.get(S_SURPLUS_FORECAST_ENABLED, False)
+    sensor  = self.settings.get(S_SURPLUS_FORECAST_SENSOR, "")
+
+    if enabled and sensor:
+        self._surplus_forecast_unsub = async_track_state_change_event(
+            self.hass, [sensor], self._on_state_change
+        )
 
     async def _save_integral(self) -> None:
         await self._store.async_save({**self.settings, "integral": self.integral})
@@ -464,6 +489,24 @@ class SolakonCoordinator:
         pv_forecast_sensor = str(s.get(S_PV_FORECAST_SENSOR, ""))
         pv_forecast_threshold = float(s.get(S_PV_FORECAST_THRESHOLD, 0.0))
 
+        surplus_forecast_enabled   = bool(s.get(S_SURPLUS_FORECAST_ENABLED, False))
+        surplus_forecast_sensor    = str(s.get(S_SURPLUS_FORECAST_SENSOR, ""))
+        surplus_forecast_threshold = float(s.get(S_SURPLUS_FORECAST_THRESHOLD, 0.0))
+        
+        if surplus_forecast_enabled and surplus_forecast_sensor:
+            raw = self.hass.states.get(surplus_forecast_sensor)
+            if raw and raw.state not in ("unknown", "unavailable"):
+                try:
+                    forecast_surplus_suppressed = float(raw.state) < surplus_forecast_threshold
+                except (ValueError, TypeError):
+                    forecast_surplus_suppressed = False
+            else:
+                forecast_surplus_suppressed = False
+        else:
+            forecast_surplus_suppressed = False
+        
+        effective_surplus_enabled = surplus_enabled and not forecast_surplus_suppressed
+        
         if pv_forecast_enabled and pv_forecast_sensor:
             raw = self.hass.states.get(pv_forecast_sensor)
             if raw and raw.state not in ("unknown", "unavailable"):
@@ -533,7 +576,7 @@ class SolakonCoordinator:
             current_power=current_power,
             zone1_limit=zone1_limit, zone3_limit=zone3_limit,
             hard_limit=hard_limit, discharge_max=discharge_max,
-            surplus_enabled=surplus_enabled, new_surplus=new_surplus,
+            surplus_enabled=effective_surplus_enabled, new_surplus=new_surplus,
             surplus_pv_hyst=surplus_pv_hyst,
             ac_enabled=ac_enabled, ac_soc_target=ac_soc_target,
             ac_hysteresis=ac_hysteresis, ac_offset=ac_offset,
