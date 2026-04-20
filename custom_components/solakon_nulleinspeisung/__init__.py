@@ -164,6 +164,16 @@ async def _ws_set_cycle(
 
 # ── Setup / Teardown ─────────────────────────────────────────────────────────
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    frontend_dir = Path(__file__).parent / "frontend"
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(PANEL_JS_URL,               str(frontend_dir / "solakon-panel.js"), False),
+        StaticPathConfig(f"/{DOMAIN}/panel.de.json", str(frontend_dir / "panel.de.json"),    False),
+        StaticPathConfig(f"/{DOMAIN}/panel.en.json", str(frontend_dir / "panel.en.json"),    False),
+    ])
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import SolakonCoordinator
 
@@ -179,14 +189,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data.get(f"{DOMAIN}_dist_store"):
         from homeassistant.helpers.storage import Store
         hass.data[f"{DOMAIN}_dist_store"] = Store(hass, STORAGE_VERSION_DIST, STORAGE_KEY_DIST)
-
-    # Static path nur einmal registrieren
-    if not hass.data.get(f"{DOMAIN}_static_registered"):
-        panel_js_file = Path(__file__).parent / "frontend" / "solakon-panel.js"
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(PANEL_JS_URL, str(panel_js_file), False)]
-        )
-        hass.data[f"{DOMAIN}_static_registered"] = True
 
     # WebSocket-Commands nur einmal registrieren
     if not hass.data.get(f"{DOMAIN}_ws_registered"):
