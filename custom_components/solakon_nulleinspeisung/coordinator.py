@@ -518,6 +518,8 @@ class SolakonCoordinator:
                 except (ValueError, TypeError):
                     pass
 
+        error_share = self._compute_error_share()
+
         pv_forecast_enabled = bool(s.get(S_PV_FORECAST_ENABLED, False))
         pv_forecast_sensor = str(s.get(S_PV_FORECAST_SENSOR, ""))
         pv_forecast_threshold = float(s.get(S_PV_FORECAST_THRESHOLD, 0.0))
@@ -692,6 +694,7 @@ class SolakonCoordinator:
                 new_pw = self._pi_calculate(
                     grid, current_power, ac_offset, ac_power_limit,
                     tolerance, ac_p, ac_i, ac_charge_mode=True,
+                    error_share=error_share,
                 )
                 await self._set_output(new_pw)
                 self._set_last_action(f"AC-PI: {current_power:.0f} → {new_pw:.0f} W")
@@ -709,6 +712,7 @@ class SolakonCoordinator:
                 new_pw = self._pi_calculate(
                     grid, current_power, target_offset, dynamic_max,
                     tolerance, p_factor, i_factor, ac_charge_mode=False,
+                    error_share=error_share,
                 )
                 await self._set_output(new_pw)
                 self._set_last_action(f"PI: {current_power:.0f} → {new_pw:.0f} W")
@@ -986,6 +990,29 @@ class SolakonCoordinator:
 
         return None
 
+    # ── Multi-Instanz Fehler-Anteil ──────────────────────────────────────────
+
+    def _compute_error_share(self) -> float:
+        """Anteil des Netzfehlers für diese Instanz — proportional zur nutzbaren Kapazität."""
+        all_coords = self.hass.data.get(DOMAIN, {})
+        if len(all_coords) <= 1:
+            return 1.0
+
+        usable: dict[str, float] = {}
+        for entry_id, coord in all_coords.items():
+            if not coord.settings.get(S_REGULATION_ENABLED, False):
+                continue
+            soc = coord._flt(coord.entry.data.get(CONF_SOC_SENSOR, ""), 0)
+            zone3 = float(coord.settings.get(S_ZONE3_LIMIT, 20))
+            usable[entry_id] = max(0.0, soc - zone3)
+
+        total = sum(usable.values())
+        if total == 0:
+            n = len(usable)
+            return 1.0 / n if n > 1 else 1.0
+
+        return usable.get(self.entry.entry_id, 0.0) / total
+
     # ── PI-Berechnung ────────────────────────────────────────────────────────
 
     def _pi_calculate(
@@ -998,12 +1025,13 @@ class SolakonCoordinator:
         p_factor: float,
         i_factor: float,
         ac_charge_mode: bool = False,
+        error_share: float = 1.0,
     ) -> float:
         """PI-Regler-Berechnung mit modusabhängiger Fehlerrichtung."""
         if ac_charge_mode:
-            raw_error = target_offset - grid_power
+            raw_error = (target_offset - grid_power) * error_share
         else:
-            raw_error = grid_power - target_offset
+            raw_error = (grid_power - target_offset) * error_share
 
         if raw_error > 0:
             error = min(raw_error, max(0.0, max_power - current_power))
