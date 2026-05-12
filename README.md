@@ -71,6 +71,17 @@ AC Laden und Tarif-Laden blockieren sich gegenseitig über den Modus-Guard (`Mod
 
 Bei mehr als einer installierten Instanz zeigt das Sidebar-Panel oben eine **Instanzleiste** sowie eine **Übersichtsseite** mit Echtzeit-Status aller Instanzen.
 
+### Automatische Fehleraufteilung
+
+Laufen mehrere Instanzen gleichzeitig, berechnet jede Instanz ihren **Fehler-Anteil** automatisch auf Basis der nutzbaren Kapazität aller aktiven Instanzen:
+
+```
+Fehler-Anteil_i = (SOC_i − Zone-3-Schwelle_i) / Σ(SOC_j − Zone-3-Schwelle_j)
+raw_error_i     = (Grid − Offset) × Fehler-Anteil_i
+```
+
+Eine Instanz mit mehr verfügbarer Kapazität übernimmt damit einen größeren Anteil des Regelungsfehlers und liefert entsprechend mehr Leistung. Bei einer einzelnen Instanz ist der Fehler-Anteil immer 1,0. Keine Konfiguration erforderlich — der Wert wird bei jedem Regelzyklus intern neu berechnet.
+
 ### Leistungsverteilung
 
 Im Panel wird bei mehreren Instanzen ein zusätzlicher **Verteilungs-Tab** eingeblendet. Dort wird konfiguriert, wie die zulässige Gesamtleistung auf die aktiven Instanzen aufgeteilt wird.
@@ -220,7 +231,7 @@ Optionales Laden bei erkanntem externem Überschuss. Aktiv in Zone 1 und Zone 2.
 
 > Der `Output = 0 W`-Guard verhindert Fehlauslösung während der PI noch aktiv regelt.
 
-Der Lademodus verwendet einen **eigenen invertierten PI-Regler**: `raw_error = ac_offset − grid`. Ein positiver Fehler (Grid zu negativ → zu viel Einspeisung) erhöht die Ladeleistung.
+Der Lademodus verwendet einen **eigenen invertierten PI-Regler**: `raw_error = (ac_offset − grid) × Fehler-Anteil`. Ein positiver Fehler (Grid zu negativ → zu viel Einspeisung) erhöht die Ladeleistung.
 
 | Parameter | Beschreibung | Empfehlung |
 |-----------|-------------|------------|
