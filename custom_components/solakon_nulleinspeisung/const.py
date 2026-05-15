@@ -59,6 +59,7 @@ S_ZONE1_LIMIT   = "zone1_limit"
 S_ZONE3_LIMIT   = "zone3_limit"
 S_DISCHARGE_MAX = "discharge_max"
 S_HARD_LIMIT    = "hard_limit"
+S_BATTERY_CAPACITY_SENSOR = "battery_capacity_sensor"
 S_OFFSET_1      = "offset_1"
 S_OFFSET_2      = "offset_2"
 S_PV_RESERVE    = "pv_reserve"
@@ -131,6 +132,7 @@ SETTINGS_DEFAULTS: dict = {
     S_ZONE3_LIMIT:   20,
     S_DISCHARGE_MAX: 40,
     S_HARD_LIMIT:    800,
+    S_BATTERY_CAPACITY_SENSOR: "",
     S_OFFSET_1:      30,
     S_OFFSET_2:      10,
     S_PV_RESERVE:    50,

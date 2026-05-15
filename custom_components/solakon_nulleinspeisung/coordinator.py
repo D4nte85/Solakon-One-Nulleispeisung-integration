@@ -35,6 +35,7 @@ from .const import (
     S_DYN_Z1_ENABLED, S_DYN_Z1_MIN, S_DYN_Z1_MAX, S_DYN_Z1_NOISE, S_DYN_Z1_FACTOR, S_DYN_Z1_NEGATIVE,
     S_DYN_Z2_ENABLED, S_DYN_Z2_MIN, S_DYN_Z2_MAX, S_DYN_Z2_NOISE, S_DYN_Z2_FACTOR, S_DYN_Z2_NEGATIVE,
     S_DYN_AC_ENABLED, S_DYN_AC_MIN, S_DYN_AC_MAX, S_DYN_AC_NOISE, S_DYN_AC_FACTOR, S_DYN_AC_NEGATIVE,
+    S_BATTERY_CAPACITY_SENSOR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1004,7 +1005,21 @@ class SolakonCoordinator:
                 continue
             soc = coord._flt(coord.entry.data.get(CONF_SOC_SENSOR, ""), 0)
             zone3 = float(coord.settings.get(S_ZONE3_LIMIT, 20))
-            usable[entry_id] = max(0.0, soc - zone3)
+            cap_sensor = str(coord.settings.get(S_BATTERY_CAPACITY_SENSOR, ""))
+            if cap_sensor:
+                cap_state = coord.hass.states.get(cap_sensor)
+                if cap_state and cap_state.state not in ("unknown", "unavailable"):
+                    try:
+                        cap_val = state_as_number(cap_state)
+                        unit = cap_state.attributes.get("unit_of_measurement", "")
+                        capacity_kwh = cap_val if unit == "kWh" else cap_val / 1000.0
+                    except (ValueError, TypeError):
+                        capacity_kwh = 100.0
+                else:
+                    capacity_kwh = 100.0
+            else:
+                capacity_kwh = 100.0
+            usable[entry_id] = max(0.0, (soc - zone3) / 100.0 * capacity_kwh)
 
         total = sum(usable.values())
         if total == 0:

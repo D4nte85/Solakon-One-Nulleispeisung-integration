@@ -123,11 +123,15 @@
     },
     "hard_limit": {
       "l": "Hard Limit (W)",
-      "d": "Absolute Ausgangsleistungs-Obergrenze in Zone 0 und Zone 1. Der at_max_limit-Guard greift nur an dieser Grenze, nicht am dynamischen Zone-2-Limit."
+      "d": "Absolute Ausgangsleistungs-Obergrenze in Zone 0 und Zone 1. In Zone 2 gilt stattdessen das dynamische PV-basierte Limit (max(0, PV − Reserve))."
     },
     "discharge_max": {
       "l": "Max. Entladestrom Zone 1 (A)",
       "d": "Entladestrom in Zone 1. Zone 2 und AC Laden setzen automatisch 0 A. Surplus setzt 2 A."
+    },
+    "battery_capacity_sensor": {
+      "l": "Batteriekapazitäts-Sensor (kWh, Optional)",
+      "d": "Nur für Multi-Instancing relevant: sensor.solakon_one_bms1_design_energy der Solakon-ONE-Geräte-Integration. Gewichtet den Netzfehler-Anteil proportional zur nutzbaren Energie — (SOC − Min-SOC) / 100 × Kapazität_kWh. Leer lassen = reine SOC-%-Gewichtung. ⚠️ Entweder für alle Instanzen setzen oder für keine."
     },
     "offset_1": {
       "l": "Offset Zone 1 (W)",

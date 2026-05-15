@@ -73,14 +73,17 @@ Bei mehr als einer installierten Instanz zeigt das Sidebar-Panel oben eine **Ins
 
 ### Automatische Fehleraufteilung
 
-Laufen mehrere Instanzen gleichzeitig, berechnet jede Instanz ihren **Fehler-Anteil** automatisch auf Basis der nutzbaren Kapazität aller aktiven Instanzen:
+Laufen mehrere Instanzen gleichzeitig, berechnet jede Instanz ihren **Fehler-Anteil** automatisch auf Basis der nutzbaren Energie aller aktiven Instanzen:
 
 ```
-Fehler-Anteil_i = (SOC_i − Zone-3-Schwelle_i) / Σ(SOC_j − Zone-3-Schwelle_j)
+nutzbar_i       = (SOC_i − Zone-3-Schwelle_i) / 100 × Kapazität_kWh_i
+Fehler-Anteil_i = nutzbar_i / Σ nutzbar_j
 raw_error_i     = (Grid − Offset) × Fehler-Anteil_i
 ```
 
-Eine Instanz mit mehr verfügbarer Kapazität übernimmt damit einen größeren Anteil des Regelungsfehlers und liefert entsprechend mehr Leistung. Bei einer einzelnen Instanz ist der Fehler-Anteil immer 1,0. Keine Konfiguration erforderlich — der Wert wird bei jedem Regelzyklus intern neu berechnet.
+Eine Instanz mit mehr verfügbarer Energie übernimmt damit einen größeren Anteil des Regelungsfehlers und liefert entsprechend mehr Leistung. Bei einer einzelnen Instanz ist der Fehler-Anteil immer 1,0. Keine Konfiguration erforderlich — der Wert wird bei jedem Regelzyklus intern neu berechnet.
+
+> **Batteriekapazität (kWh):** Optional, Standard 100 — dann entfällt der `/100 × Kapazität`-Faktor und die Gewichtung erfolgt rein nach SOC-Prozentpunkten. Nur sinnvoll setzen wenn die Instanzen Batterien unterschiedlicher Kapazität steuern.
 
 ### Leistungsverteilung
 
