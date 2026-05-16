@@ -71,30 +71,42 @@ AC Laden und Tarif-Laden blockieren sich gegenseitig über den Modus-Guard (`Mod
 
 Bei mehr als einer installierten Instanz zeigt das Sidebar-Panel oben eine **Instanzleiste** sowie eine **Übersichtsseite** mit Echtzeit-Status aller Instanzen.
 
-### Automatische Fehleraufteilung
+### Automatische Fehleraufteilung und Leistungsverteilung
 
-Laufen mehrere Instanzen gleichzeitig, berechnet jede Instanz ihren **Fehler-Anteil** automatisch auf Basis der nutzbaren Energie aller aktiven Instanzen:
+Laufen mehrere Instanzen gleichzeitig, berechnet jeder Coordinator seinen **Gewichts-Anteil** `w_i` und verwendet ihn sowohl für den PI-Regelungsfehler als auch für das zugeteilte Leistungslimit in Zone 1:
 
 ```
-nutzbar_i       = (SOC_i − Zone-3-Schwelle_i) / 100 × Kapazität_kWh_i
-Fehler-Anteil_i = nutzbar_i / Σ nutzbar_j
-raw_error_i     = (Grid − Offset) × Fehler-Anteil_i
+# Gleichverteilung (Standard):
+w_i = 1 / Anzahl_aktiver_Instanzen
+
+# Gewichtet:
+nutzbar_i   = (SOC_i − Zone-3-Schwelle_i) / 100 × Kapazität_kWh_i
+soc_anteil_i = nutzbar_i / Σ nutzbar_j
+pv_anteil_i  = PV_i / Σ PV_j
+w_i          = (1 − soc_pv_balance) × soc_anteil_i + soc_pv_balance × pv_anteil_i
+
+# Gesamtleistung (PV-Einfluss):
+total_power = global_max × (1 − pv_influence) + min(ΣPV, global_max) × pv_influence
+
+# Ergebnis pro Instanz:
+allocated_power_i = total_power × w_i   → effektives Hard-Limit in Zone 1
+error_share_i     = w_i                 → Anteil am Netzfehler im PI-Regler
 ```
 
-Eine Instanz mit mehr verfügbarer Energie übernimmt damit einen größeren Anteil des Regelungsfehlers und liefert entsprechend mehr Leistung. Bei einer einzelnen Instanz ist der Fehler-Anteil immer 1,0. Keine Konfiguration erforderlich — der Wert wird bei jedem Regelzyklus intern neu berechnet.
+Bei einer einzelnen aktiven Instanz bleibt `w_i = 1,0` und das statische Hard-Limit gilt unverändert.
 
-> **Batteriekapazität (kWh):** Optional, Standard 100 — dann entfällt der `/100 × Kapazität`-Faktor und die Gewichtung erfolgt rein nach SOC-Prozentpunkten. Nur sinnvoll setzen wenn die Instanzen Batterien unterschiedlicher Kapazität steuern.
+> **Batteriekapazität (kWh):** Optional, Standard 100 — dann erfolgt die Gewichtung rein nach SOC-Prozentpunkten. Sinnvoll wenn die Instanzen Batterien unterschiedlicher Kapazität steuern.
 
-### Leistungsverteilung
+### Leistungsverteilung konfigurieren
 
-Im Panel wird bei mehreren Instanzen ein zusätzlicher **Verteilungs-Tab** eingeblendet. Dort wird konfiguriert, wie die zulässige Gesamtleistung auf die aktiven Instanzen aufgeteilt wird.
+Im Panel wird bei mehreren Instanzen ein zusätzlicher **Verteilungs-Tab** eingeblendet.
 
 | Parameter | Beschreibung |
 |-----------|-------------|
 | Gesamte Max. Ausgangsleistung (W) | Absolute Obergrenze aller Instanzen zusammen |
-| Verteilungs-Modus | Gleichverteilung · Gewichtet (SOC/PV) · Manuell |
+| PV-Einfluss (0–1) | 0,0 = immer Global-Max · 1,0 = durch PV begrenzt · 0,5 = Mittelweg |
+| Verteilungs-Modus | Gleichverteilung oder Gewichtet (SOC/PV) |
 | SOC ↔ PV Gewichtung | 0,0 = nur SOC · 1,0 = nur PV (nur Modus Gewichtet) |
-| Aktualisierungsintervall | Neuberechnung alle 10–300 s |
 
 ---
 

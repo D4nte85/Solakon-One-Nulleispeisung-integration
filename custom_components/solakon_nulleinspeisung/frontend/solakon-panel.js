@@ -1081,31 +1081,10 @@ class SolakonPanel extends HTMLElement {
       return;
     }
 
-    const mode      = this._distVal("distribution_mode") ?? "equal";
-    const globalMax = this._distVal("global_max_power")  ?? 800;
-    const interval  = this._distVal("interval_seconds")  ?? "30";
-    const balance   = this._distVal("soc_pv_balance")    ?? 0.5;
-
-    const manualRows = this._instances.map(inst => {
-      const val = this._distInstVal(inst.entry_id, "manual_power") ?? 800;
-      return `<div class="field">
-        <label>${inst.instance_name} ${dt.manual_inst_lbl || "(W)"}</label>
-        <input type="number" min="0" max="9600" step="10" value="${val}"
-          data-dist-inst="${inst.entry_id}" data-dist-key="manual_power"/>
-      </div>`;
-    }).join("");
-
-    const manualSum = this._instances.reduce((s, inst) => {
-      return s + (parseFloat(this._distInstVal(inst.entry_id, "manual_power")) || 0);
-    }, 0);
-    const warnTpl = dt.manual_warn || "⚠️ Sum ({sum} W) exceeds global max";
-    const manualWarn = manualSum > globalMax
-      ? `<p style="font-size:.8em;color:#dc2626;margin-top:4px">${warnTpl.replace("{sum}", manualSum)}</p>`
-      : "";
-
-    const intervalOptions = ["10","30","60","120","300"].map(v =>
-      `<option value="${v}"${v === String(interval) ? " selected" : ""}>${v} s${v === "30" ? (dt.interval_recommended || "") : ""}</option>`
-    ).join("");
+    const mode       = this._distVal("distribution_mode") ?? "equal";
+    const globalMax  = this._distVal("global_max_power")  ?? 800;
+    const balance    = this._distVal("soc_pv_balance")    ?? 0.5;
+    const pvInfluence = this._distVal("pv_influence")     ?? 0.5;
 
     c.innerHTML = `
       <div class="col-card top-item">
@@ -1117,9 +1096,9 @@ class SolakonPanel extends HTMLElement {
             <input type="number" min="0" max="9600" step="10" value="${globalMax}" data-dist-key="global_max_power"/>
           </div>
           <div class="field">
-            <label>${dt.interval_lbl || ""}</label>
-            <div class="desc">${dt.interval_desc || ""}</div>
-            <select data-dist-key="interval_seconds">${intervalOptions}</select>
+            <label>${dt.pv_influence_lbl || ""}</label>
+            <div class="desc">${dt.pv_influence_desc || ""}</div>
+            <input type="number" min="0" max="1" step="0.05" value="${pvInfluence}" data-dist-key="pv_influence"/>
           </div>
         </div>
       </div>
@@ -1130,10 +1109,9 @@ class SolakonPanel extends HTMLElement {
           <div class="field">
             <label>${dt.mode_lbl || ""}</label>
             <div class="desc">${(dt.mode_desc || "").replace(/\n/g, "<br>")}</div>
-            <select data-dist-key="distribution_mode" id="dist-mode-select">
+            <select data-dist-key="distribution_mode">
               <option value="equal"${mode === "equal" ? " selected" : ""}>${dt.mode_equal || "Equal"}</option>
               <option value="weighted"${mode === "weighted" ? " selected" : ""}>${dt.mode_weighted || "Weighted"}</option>
-              <option value="manual"${mode === "manual" ? " selected" : ""}>${dt.mode_manual || "Manual"}</option>
             </select>
           </div>
           <div class="field" style="${mode !== "weighted" ? "opacity:.4;pointer-events:none" : ""}">
@@ -1141,14 +1119,6 @@ class SolakonPanel extends HTMLElement {
             <div class="desc">${dt.balance_desc || ""}</div>
             <input type="number" min="0" max="1" step="0.05" value="${balance}" data-dist-key="soc_pv_balance"/>
           </div>
-        </div>
-      </div>
-
-      <div class="col-card top-item" style="${mode !== "manual" ? "opacity:.4;pointer-events:none" : ""}">
-        <div class="col-header" style="background:#b45309">${dt.manual_hdr || "🔧"}</div>
-        <div class="col-body">
-          ${manualRows}
-          ${manualWarn}
         </div>
       </div>
 
