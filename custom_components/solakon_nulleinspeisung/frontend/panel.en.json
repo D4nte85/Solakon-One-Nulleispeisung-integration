@@ -307,6 +307,8 @@
     "output_lbl":        "Output Power",
     "solar_lbl":         "Solar Power",
     "integral_lbl":      "PI Integral",
+    "alloc_lbl":        "Zone-1 Limit (alloc.)",
+    "alloc_single":     "Single",
     "stddev_lbl":        "Grid StdDev",
     "offset_lbl":        "Active Offset",
     "elapsed_lbl":       "Since last output",

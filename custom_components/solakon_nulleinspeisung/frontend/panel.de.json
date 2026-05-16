@@ -307,6 +307,8 @@
     "output_lbl":        "Ausgangsleistung",
     "solar_lbl":         "Solarleistung",
     "integral_lbl":      "PI Integral",
+    "alloc_lbl":        "Zone-1-Limit (zugeteilt)",
+    "alloc_single":     "Einzel",
     "stddev_lbl":        "Netz-StdDev",
     "offset_lbl":        "Aktiver Offset",
     "elapsed_lbl":       "Seit letztem Output",

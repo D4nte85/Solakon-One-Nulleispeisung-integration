@@ -122,6 +122,7 @@ async def _ws_get_status(
         "is_night":          coord.is_night,
         "forecast_tariff_suppressed": coord.forecast_tariff_suppressed,
         "forecast_surplus_forced": coord.forecast_surplus_forced,
+        "allocated_power":   coord.allocated_power,
     })
 
 
@@ -261,7 +262,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 DIST_DEFAULTS = {
     "global_max_power":  800,
-    "interval_seconds":  30,
     "distribution_mode": "equal",
     "soc_pv_balance":    0.5,
     "pv_influence":      0.5,

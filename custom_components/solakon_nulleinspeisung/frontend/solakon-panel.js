@@ -790,6 +790,9 @@ class SolakonPanel extends HTMLElement {
               <div class="stat"><div class="val" id="st-int">—</div>   <div class="lbl">${s.integral_lbl || "Integral"}</div></div>
               <div class="stat"><div class="val" id="st-stddev">—</div><div class="lbl">${s.stddev_lbl   || "StdDev"}</div></div>
             </div>
+            <div class="stat-row">
+              <div class="stat"><div class="val" id="st-alloc">—</div><div class="lbl">${s.alloc_lbl || "Alloc."}</div></div>
+            </div>
             <div class="stat-full">
               <div class="val" id="st-offset-val">—</div>
               <div class="lbl" id="st-offset-lbl">${s.offset_lbl || "Offset"}</div>
@@ -870,6 +873,7 @@ class SolakonPanel extends HTMLElement {
     set("st-soc",          `${st.soc ?? "—"} %`);
     set("st-int",          `${(st.integral ?? 0).toFixed(2)}`);
     set("st-stddev",       `${(st.stddev ?? 0).toFixed(1)} W`);
+    set("st-alloc",        st.allocated_power != null ? `${st.allocated_power} W` : (s.alloc_single || "—"));
     set("st-elapsed",      this._fmt_elapsed(st.last_output_ts));
     set("st-mode-elapsed", this._fmt_elapsed(st.mode_label_ts));
     set("st-mode",         st.mode_label  || "—");

@@ -80,6 +80,9 @@ class SolakonCoordinator:
         self.dyn_offset_z2: float = 0.0
         self.dyn_offset_ac: float = 0.0
 
+        # Multi-Instanz: zugeteiltes Leistungslimit (None = Einzelbetrieb)
+        self.allocated_power: float | None = None
+
         # Interne Mechanik
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
@@ -520,6 +523,7 @@ class SolakonCoordinator:
                     pass
 
         error_share, allocated_power = self._compute_distribution()
+        self.allocated_power = allocated_power
         effective_hard = int(allocated_power) if allocated_power is not None else hard_limit
 
         pv_forecast_enabled = bool(s.get(S_PV_FORECAST_ENABLED, False))
