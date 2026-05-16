@@ -519,7 +519,8 @@ class SolakonCoordinator:
                 except (ValueError, TypeError):
                     pass
 
-        error_share = self._compute_error_share()
+        error_share, allocated_power = self._compute_distribution()
+        effective_hard = int(allocated_power) if allocated_power is not None else hard_limit
 
         pv_forecast_enabled = bool(s.get(S_PV_FORECAST_ENABLED, False))
         pv_forecast_sensor = str(s.get(S_PV_FORECAST_SENSOR, ""))
@@ -652,7 +653,7 @@ class SolakonCoordinator:
         if mode == MODE_AC_CHARGE:
             dynamic_max = ac_power_limit
         elif self.cycle_active:
-            dynamic_max = hard_limit
+            dynamic_max = effective_hard
         else:
             dynamic_max = max(0, solar - pv_reserve)
 
@@ -683,9 +684,9 @@ class SolakonCoordinator:
 
         # ── PI-Pfade ─────────────────────────────────────────────────────────
         if self.surplus_active:
-            await self._set_output(hard_limit)
+            await self._set_output(effective_hard)
             self.mode_label = "Überschuss-Einspeisung"
-            self._set_last_action(f"Zone 0: Output → {hard_limit} W")
+            self._set_last_action(f"Zone 0: Output → {effective_hard} W")
             await self._wait_for_target(hard_limit)
 
         elif self.ac_charge_active:
@@ -991,42 +992,83 @@ class SolakonCoordinator:
 
         return None
 
-    # ── Multi-Instanz Fehler-Anteil ──────────────────────────────────────────
+    # ── Multi-Instanz Verteilung ─────────────────────────────────────────────
 
-    def _compute_error_share(self) -> float:
-        """Anteil des Netzfehlers für diese Instanz — proportional zur nutzbaren Kapazität."""
+    def _compute_distribution(self) -> tuple[float, float | None]:
+        """Fehler-Anteil + zugeteilte Leistung für Multi-Instanz-Betrieb berechnen.
+
+        Gibt (error_share, allocated_power) zurück.
+        Im Einzelbetrieb: (1.0, None) — kein Einfluss auf hard_limit.
+        """
         all_coords = self.hass.data.get(DOMAIN, {})
-        if len(all_coords) <= 1:
-            return 1.0
+        active = {
+            eid: c for eid, c in all_coords.items()
+            if c.settings.get(S_REGULATION_ENABLED, False)
+        }
+        if len(active) <= 1:
+            return 1.0, None
 
-        usable: dict[str, float] = {}
-        for entry_id, coord in all_coords.items():
-            if not coord.settings.get(S_REGULATION_ENABLED, False):
-                continue
-            soc = coord._flt(coord.entry.data.get(CONF_SOC_SENSOR, ""), 0)
-            zone3 = float(coord.settings.get(S_ZONE3_LIMIT, 20))
-            cap_sensor = str(coord.settings.get(S_BATTERY_CAPACITY_SENSOR, ""))
-            if cap_sensor:
-                cap_state = coord.hass.states.get(cap_sensor)
-                if cap_state and cap_state.state not in ("unknown", "unavailable"):
-                    try:
-                        cap_val = state_as_number(cap_state)
-                        unit = cap_state.attributes.get("unit_of_measurement", "")
-                        capacity_kwh = cap_val if unit == "kWh" else cap_val / 1000.0
-                    except (ValueError, TypeError):
-                        capacity_kwh = 100.0
+        n = len(active)
+        dist = self.hass.data.get(f"{DOMAIN}_dist_config") or {}
+        global_max  = float(dist.get("global_max_power", 800))
+        mode        = dist.get("distribution_mode", "equal")
+        pv_infl     = float(dist.get("pv_influence", 0.5))
+        soc_pv_bal  = float(dist.get("soc_pv_balance", 0.5))
+
+        # Gesamt-PV = Summe aller Instanz-Solarsensoren
+        total_pv = sum(
+            c._flt_power(c.entry.data.get(CONF_SOLAR_SENSOR, ""))
+            for c in active.values()
+        )
+        pv_capped   = min(total_pv, global_max)
+        total_power = global_max * (1.0 - pv_infl) + pv_capped * pv_infl
+
+        if mode == "equal":
+            w_self = 1.0 / n
+        else:
+            # SOC-Gewichte: nutzbare kWh pro Instanz
+            soc_weights: dict[str, float] = {}
+            for eid, c in active.items():
+                soc   = c._flt(c.entry.data.get(CONF_SOC_SENSOR, ""), 0)
+                zone3 = float(c.settings.get(S_ZONE3_LIMIT, 20))
+                cap_s = str(c.settings.get(S_BATTERY_CAPACITY_SENSOR, ""))
+                if cap_s:
+                    cap_st = c.hass.states.get(cap_s)
+                    if cap_st and cap_st.state not in ("unknown", "unavailable"):
+                        try:
+                            cv   = state_as_number(cap_st)
+                            unit = cap_st.attributes.get("unit_of_measurement", "")
+                            cap_kwh = cv if unit == "kWh" else cv / 1000.0
+                        except (ValueError, TypeError):
+                            cap_kwh = 100.0
+                    else:
+                        cap_kwh = 100.0
                 else:
-                    capacity_kwh = 100.0
-            else:
-                capacity_kwh = 100.0
-            usable[entry_id] = max(0.0, (soc - zone3) / 100.0 * capacity_kwh)
+                    cap_kwh = 100.0
+                soc_weights[eid] = max(0.0, (soc - zone3) / 100.0 * cap_kwh)
 
-        total = sum(usable.values())
-        if total == 0:
-            n = len(usable)
-            return 1.0 / n if n > 1 else 1.0
+            total_soc = sum(soc_weights.values())
 
-        return usable.get(self.entry.entry_id, 0.0) / total
+            # PV-Gewichte: Instanz-Solar
+            pv_weights: dict[str, float] = {
+                eid: c._flt_power(c.entry.data.get(CONF_SOLAR_SENSOR, ""))
+                for eid, c in active.items()
+            }
+            total_pv_w = sum(pv_weights.values())
+
+            eq    = 1.0 / n
+            soc_w = soc_weights.get(self.entry.entry_id, 0.0) / total_soc if total_soc > 0 else eq
+            pv_w  = (
+                pv_weights.get(self.entry.entry_id, 0.0) / total_pv_w
+                if total_pv_w > 0
+                else soc_w  # kein PV-Signal → PV-Anteil auf SOC umleiten
+            )
+
+            pv_share  = soc_pv_bal
+            soc_share = 1.0 - pv_share
+            w_self    = soc_share * soc_w + pv_share * pv_w
+
+        return w_self, round(total_power * w_self)
 
     # ── PI-Berechnung ────────────────────────────────────────────────────────
 

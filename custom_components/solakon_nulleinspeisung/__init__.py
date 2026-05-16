@@ -185,10 +185,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    # Distribution-Store einmalig anlegen
+    # Distribution-Store einmalig anlegen + Config in synchron lesbaren Cache laden
     if not hass.data.get(f"{DOMAIN}_dist_store"):
         from homeassistant.helpers.storage import Store
-        hass.data[f"{DOMAIN}_dist_store"] = Store(hass, STORAGE_VERSION_DIST, STORAGE_KEY_DIST)
+        store = Store(hass, STORAGE_VERSION_DIST, STORAGE_KEY_DIST)
+        hass.data[f"{DOMAIN}_dist_store"] = store
+        stored = await store.async_load() or {}
+        hass.data[f"{DOMAIN}_dist_config"] = {**DIST_DEFAULTS, **stored}
 
     # WebSocket-Commands nur einmal registrieren
     if not hass.data.get(f"{DOMAIN}_ws_registered"):
@@ -242,6 +245,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_remove_panel(hass, DOMAIN)
             hass.data.pop(DOMAIN, None)
             hass.data.pop(f"{DOMAIN}_dist_store", None)
+            hass.data.pop(f"{DOMAIN}_dist_config", None)
             hass.data.pop(f"{DOMAIN}_panel_registered", None)
             hass.data.pop(f"{DOMAIN}_ws_registered", None)
             hass.data.pop(f"{DOMAIN}_static_registered", None)
@@ -260,6 +264,7 @@ DIST_DEFAULTS = {
     "interval_seconds":  30,
     "distribution_mode": "equal",
     "soc_pv_balance":    0.5,
+    "pv_influence":      0.5,
 }
 
 
@@ -292,4 +297,5 @@ async def _ws_save_distribution_config(
         connection.send_error(msg["id"], "not_ready", "Distribution-Store nicht initialisiert")
         return
     await store.async_save(msg["distribution"])
+    hass.data[f"{DOMAIN}_dist_config"] = {**DIST_DEFAULTS, **msg["distribution"]}
     connection.send_result(msg["id"], {"success": True})
