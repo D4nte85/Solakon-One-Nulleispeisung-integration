@@ -122,8 +122,8 @@ body{font-family:Roboto,sans-serif;font-size:13px;color:var(--color-text-primary
 </div>
 
 <script>
-const DA={name:'Solakon A',zone:2,zl:'🔋 Zone 2 — Schonend',zc:'#0891b2',soc:74,out:312,grid:4,solar:580,int:12.40,std:18.3,fl:'Zone 2: Regelung aktiv',cy:false,reg:true,dyn_z2:true,offset:28,mode:'1'};
-const DB={name:'Solakon B',zone:1,zl:'⚡ Zone 1 — Aggressiv',zc:'#16a34a',soc:41,out:180,grid:8,solar:320,int:3.10,std:9.7,fl:'Zone 1: Entladezyklus Start',cy:true,reg:true,dyn_z1:true,offset:38,mode:'1'};
+const DA={name:'Solakon A',zone:2,zl:'🔋 Zone 2 — Schonend',zc:'#0891b2',soc:74,out:312,grid:4,solar:580,int:12.40,std:18.3,fl:'Zone 2: Regelung aktiv',cy:false,reg:true,dyn_z2:true,offset:28,mode:'1',alloc:null};
+const DB={name:'Solakon B',zone:1,zl:'⚡ Zone 1 — Aggressiv',zc:'#16a34a',soc:41,out:180,grid:8,solar:320,int:3.10,std:9.7,fl:'Zone 1: Entladezyklus Start',cy:true,reg:true,dyn_z1:true,offset:38,mode:'1',alloc:400};
 const INST={a:DA,b:DB};
 const TABS=[{id:'status',l:'📊 Status'},{id:'pi',l:'🎛️ PI-Regler'},{id:'zones',l:'🔋 Zonen'},{id:'surplus',l:'☀️ Überschuss'},{id:'ac',l:'⚡ AC Laden'},{id:'tariff',l:'💹 Tarif'},{id:'dynoff',l:'📈 Dyn. Offset'},{id:'night',l:'🌙 Nacht'},{id:'debug',l:'🔧 Debug'}];
 let inst='a', tab='status';
@@ -188,12 +188,10 @@ function renderOv(c){
     <div class="ov-card" onclick="si('${k}')">
       <div class="ov-hdr" style="background:${d.zc}">${d.zl} — ${d.name}</div>
       <div class="ov-body">
-        <div class="ov-row"><span>Regelung</span><strong style="color:${d.reg?'#16a34a':'#dc2626'}">${d.reg?'aktiv':'inaktiv'}</strong></div>
         <div class="ov-row"><span>SOC</span><strong>${d.soc} %</strong></div>
         <div class="ov-row"><span>Ausgang</span><strong>${d.out} W</strong></div>
-        <div class="ov-row"><span>Netz</span><strong>+${d.grid} W</strong></div>
-        <div class="ov-row"><span>PV</span><strong>${d.solar} W</strong></div>
-        <div class="ov-row"><span>Aktiver Fall</span><strong>${d.fl}</strong></div>
+        <div class="ov-row"><span>Netz</span><strong>${d.grid >= 0 ? '+' : ''}${d.grid} W</strong></div>
+        <div class="ov-row"><span>Fall</span><strong>${d.fl}</strong></div>
       </div>
     </div>`).join('');
   c.innerHTML=`<div class="ov-grid">${cards}</div><div class="sec-hdr">⚖️ Leistungsverteilung</div>`;
@@ -203,25 +201,15 @@ function renderOv(c){
   c.appendChild(vd);
   vd.innerHTML=`
     ${card('🌐 Globale Einstellungen','#0891b2',
-      `<div class="field"><label>Gesamte Max. Ausgangsleistung (W)</label><div class="desc">Absolute Obergrenze aller Instanzen zusammen. Standard: 800 W. Im manuellen Modus ignoriert.</div><input type="number" value="800" min="0" max="9600" step="10"></div>`+
-      `<div class="field"><label>Aktualisierungsintervall</label><div class="desc">Wie oft die Verteilung neu berechnet wird.</div><select><option>10 s</option><option selected>30 s (empfohlen)</option><option>60 s</option><option>120 s</option><option>300 s</option></select></div>`)}
+      `<div class="field"><label>Gesamte Max. Ausgangsleistung (W)</label><div class="desc">Absolute Obergrenze aller Instanzen zusammen. Standard: 800 W.</div><input type="number" value="800" min="0" max="9600" step="10" oninput="dirtyDist()"></div>`+
+      `<div class="field"><label>PV-Einfluss (0–1)</label><div class="desc">0,0 = immer Global-Max · 1,0 = durch PV begrenzt · 0,5 = Mittelweg</div><input type="number" value="0.5" min="0" max="1" step="0.05" oninput="dirtyDist()"></div>`)}
     ${card('⚖️ Verteilungs-Modus','#7c3aed',
-      `<div class="field"><label>Modus</label><div class="desc">Gleichverteilung: gleich viel · Gewichtet: nach SOC/PV · Manuell: feste Wattzahl</div><select id="sel-mode"><option selected>Gleichverteilung</option><option>Gewichtet</option><option>Manuell</option></select></div>
-       <div id="blk-w" class="dimmed"><div class="field"><label>SOC ←→ PV Gewichtung (0–1)</label><div class="desc">0,0 → nur SOC · 1,0 → nur PV · Nur bei Modus = Gewichtet</div><input type="number" value="0.5" min="0" max="1" step="0.05"></div></div>`)}
-    <div id="blk-m" class="dimmed">
-      ${card('🔧 Manuelle Leistung pro Instanz','#b45309',
-        `<div class="cg2"><div class="field"><label>Solakon A (W)</label><div class="desc">Feste Ausgangsleistung — unabhängig von SOC oder PV.</div><input type="number" value="400" min="0" max="800" step="10"></div><div class="field"><label>Solakon B (W)</label><div class="desc">Feste Ausgangsleistung — unabhängig von SOC oder PV.</div><input type="number" value="400" min="0" max="800" step="10"></div></div>`)}
-    </div>
+      `<div class="field"><label>Modus</label><div class="desc">Gleichverteilung: gleich viel · Gewichtet: nach SOC/PV</div><select id="sel-mode" onchange="dirtyDist()"><option selected>Gleichverteilung</option><option>Gewichtet</option></select></div>
+       <div id="blk-w" class="dimmed"><div class="field"><label>SOC ←→ PV Gewichtung (0–1)</label><div class="desc">0,0 → nur SOC · 1,0 → nur PV · Nur bei Modus = Gewichtet</div><input type="number" value="0.5" min="0" max="1" step="0.05" oninput="dirtyDist()"></div></div>`)}
     <div class="save-bar" id="save-dist">
       <span>Ungespeicherte Änderungen</span>
       <button id="save-dist-btn">💾 Speichern</button>
     </div>`;
-
-  // Alle Inputs/Selects in der Verteilung lösen dirtyDist() aus
-  vd.querySelectorAll('input,select').forEach(el=>{
-    el.addEventListener('change', dirtyDist);
-    el.addEventListener('input',  dirtyDist);
-  });
 
   // Speichern-Button
   vd.querySelector('#save-dist-btn').addEventListener('click',()=>hideSave('save-dist'));
@@ -230,7 +218,6 @@ function renderOv(c){
   vd.querySelector('#sel-mode').addEventListener('change',function(){
     const m=this.value;
     vd.querySelector('#blk-w').className=m==='Gewichtet'?'':'dimmed';
-    vd.querySelector('#blk-m').className=m==='Manuell'?'':'dimmed';
   });
 }
 
@@ -258,6 +245,7 @@ function rStatus(d){
     </div></div>
     <div class="sc"><div class="sc-hdr" style="background:#7c3aed">📈 Regelzustand</div><div class="sc-body">
       <div class="sr2"><div class="sv"><div class="val">${d.int.toFixed(2)}</div><div class="lbl">PI Integral</div></div><div class="sv"><div class="val">${d.std.toFixed(1)} W</div><div class="lbl">Netz-StdDev</div></div></div>
+      <div class="sr2"><div class="sv"><div class="val">${d.alloc != null ? d.alloc+' W' : '—'}</div><div class="lbl">Zugeteilt (Multi)</div></div></div>
       <div class="sv-full"><div class="val">${d.offset} W</div><div class="lbl">Aktiver Offset — ${offLbl}</div>
         <div style="margin-top:3px"><span class="osrc ${isDyn?'dyn':'stat'}">${isDyn?'⚡ dynamisch':'dyn. inaktiv'}</span><span class="osrc stat">statisch: ${d.offset} W</span></div>
       </div>
